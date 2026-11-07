@@ -22,6 +22,7 @@
 // ── I2C ──────────────────────────────────────────────────
 #define PIN_I2C_SDA 6
 #define PIN_I2C_SCL 7
+#define PCF85063A_ADDR 0x51
 
 // ── I2S Audio ────────────────────────────────────────────
 #define PIN_I2S_BCLK 21

@@ -99,7 +99,7 @@ BLE comes before ACOM because ACOM sends the BLE address and address type, which
 
 M0 builds locally. CI and serial logs are not verified yet.
 
-The self-test from the old `test_main.cpp` also moves over, behind a `CONFIG_CONVENIENCE_SELFTEST` option. Each finished module adds a test to it.
+The self-test from the old `test_main.cpp` moves over after all middleware modules are done, behind a `CONFIG_CONVENIENCE_SELFTEST` option. Its I2C check can use `board_i2c_scan()`.
 
 ### Application
 
