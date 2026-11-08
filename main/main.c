@@ -1,52 +1,79 @@
 #include <stdbool.h>
 
 #include "board_i2c.h"
+#include "board_pins.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "led_strip.h"
 #include "mcp23017.h"
+#include "power.h"
 
 static const char *TAG = "con-venience";
+
+// M1 acceptance test: on battery only, the LED must keep blinking past ~6 s
+// (U1 hold time). Remove once a real UI exists.
+static void blink_forever(void)
+{
+    led_strip_handle_t           led = NULL;
+    const led_strip_config_t     strip_config = {.strip_gpio_num = PIN_LED, .max_leds = 1};
+    const led_strip_rmt_config_t rmt_config = {.resolution_hz = 10 * 1000 * 1000};
+    if (led_strip_new_rmt_device(&strip_config, &rmt_config, &led) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "LED init failed");
+        return;
+    }
+
+    bool on = false;
+    while (true)
+    {
+        on = !on;
+        if (on)
+        {
+            led_strip_set_pixel(led, 0, 16, 16, 16);
+            led_strip_refresh(led);
+        }
+        else
+        {
+            led_strip_clear(led);
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
 
 void app_main(void)
 {
     // No ESP_ERROR_CHECK here: an I2C error must not turn into a reboot loop.
-    uint8_t   found = 0;
+    // Keep-alive comes first; U1 only holds the MCU up for ~6 s.
     esp_err_t err = board_i2c_init();
     if (err == ESP_OK)
     {
-        err = board_i2c_scan(&found);
+        err = mcp23017_init();
+    }
+    if (err == ESP_OK)
+    {
+        err = power_early_init();
     }
 
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Keep-alive set, %s", power_was_asleep() ? "woke from sleep" : "cold boot");
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Keep-alive failed: %s", esp_err_to_name(err));
+    }
+
+    uint8_t found = 0;
+    err = board_i2c_scan(&found);
     if (err == ESP_OK)
     {
         ESP_LOGI(TAG, "I2C scan done, %d device(s)", found);
     }
     else
     {
-        ESP_LOGE(TAG, "I2C failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "I2C scan failed: %s", esp_err_to_name(err));
     }
 
-    err = mcp23017_init();
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "MCP23017 init failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    uint8_t iocon = 0;
-    err = mcp23017_read_reg(MCP_IOCON, &iocon);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "MCP23017 read failed: %s", esp_err_to_name(err));
-    }
-    else if (iocon != 0x84)
-    {
-        ESP_LOGE(TAG, "MCP23017 IOCON is 0x%02X, expected 0x84", iocon);
-    }
-    else
-    {
-        ESP_LOGI(TAG, "MCP23017 IOCON OK: 0x%02X", iocon);
-    }
+    blink_forever();
 }
