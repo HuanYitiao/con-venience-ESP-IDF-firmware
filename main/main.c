@@ -13,16 +13,67 @@
 
 static const char *TAG = "con-venience";
 
-// M1 acceptance test: on battery only, the LED must keep blinking past ~6 s
-// (U1 hold time). Remove once a real UI exists.
-static void blink_forever(void)
+// M2 sleep/wake test, see sleep_test(). Off by default: while it runs the
+// board is switched off most of the time, so reflashing needs a wake first.
+#define M2_SLEEP_TEST 0
+
+// NULL on failure.
+static led_strip_handle_t led_init(void)
 {
-    led_strip_handle_t           led = NULL;
-    const led_strip_config_t     strip_config = {.strip_gpio_num = PIN_LED, .max_leds = 1};
+    led_strip_handle_t       led = NULL;
+    const led_strip_config_t strip_config = {
+        .strip_gpio_num = PIN_LED,
+        .max_leds = 1,
+        .color_component_format = PIN_LED_COLOR_FORMAT,
+    };
     const led_strip_rmt_config_t rmt_config = {.resolution_hz = 10 * 1000 * 1000};
     if (led_strip_new_rmt_device(&strip_config, &rmt_config, &led) != ESP_OK)
     {
         ESP_LOGE(TAG, "LED init failed");
+        return NULL;
+    }
+    return led;
+}
+
+#if M2_SLEEP_TEST
+// Shows the wake reason as an LED colour for 10 s, then sleeps with a 30 s
+// RTC wake: COLD_BOOT white, BUTTON green, TIMER blue, OTHER red.
+static void sleep_test(void)
+{
+    static const uint8_t colours[][3] = {
+        [POWER_WAKE_COLD_BOOT] = {16, 16, 16},
+        [POWER_WAKE_BUTTON] = {0, 16, 0},
+        [POWER_WAKE_TIMER] = {0, 0, 16},
+        [POWER_WAKE_OTHER] = {16, 0, 0},
+    };
+    const uint8_t *c = colours[power_wake_reason()];
+
+    led_strip_handle_t led = led_init();
+    for (int i = 0; i < 10; i++)
+    {
+        if (led)
+        {
+            led_strip_set_pixel(led, 0, c[0], c[1], c[2]);
+            led_strip_refresh(led);
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+        if (led)
+        {
+            led_strip_clear(led);
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
+    power_sleep(30);
+}
+#else
+// M1 acceptance test: on battery only, the LED must keep blinking past ~6 s
+// (U1 hold time). Remove once a real UI exists.
+static void blink_forever(void)
+{
+    led_strip_handle_t led = led_init();
+    if (!led)
+    {
         return;
     }
 
@@ -42,6 +93,7 @@ static void blink_forever(void)
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
+#endif
 
 // M2 step 2 test: sets a fixed time once, later boots must find it trusted.
 static void rtc_test(void)
@@ -70,6 +122,7 @@ static void rtc_test(void)
              t.minutes, t.seconds, trusted ? "trusted" : "untrusted");
 }
 
+#if !M2_SLEEP_TEST
 // M2 step 3 test: a 5 s countdown must set TF and pull the shared INT line
 // (GPIO5) low, and clearing the flag must release it again.
 static void timer_test(void)
@@ -117,6 +170,7 @@ static void timer_test(void)
     }
     ESP_LOGI(TAG, "Flags cleared, timer stopped: INT=%d", gpio_get_level(PIN_MCP_INT));
 }
+#endif
 
 void app_main(void)
 {
@@ -147,7 +201,10 @@ void app_main(void)
     if (rtc_err == ESP_OK)
     {
         rtc_test();
+#if !M2_SLEEP_TEST
+        // Takes 8 s; would delay the wake colour in the sleep test.
         timer_test();
+#endif
     }
     else
     {
@@ -165,5 +222,9 @@ void app_main(void)
         ESP_LOGE(TAG, "I2C scan failed: %s", esp_err_to_name(err));
     }
 
+#if M2_SLEEP_TEST
+    sleep_test();
+#else
     blink_forever();
+#endif
 }

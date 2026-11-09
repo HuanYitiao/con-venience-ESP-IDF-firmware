@@ -4,7 +4,7 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
 
-**Current status:** M1 is done: the shared I2C bus, the MCP23017 driver and the power keep-alive run on the PCB, and the board stays powered on battery past the U1 hold time. The control run (keep-alive disabled, expect power-off at about 6 s) was skipped, so it is not yet proven that the keep-alive, rather than a floating SLEEP_REQ, holds the power. Next is M2, the RTC and shutdown/wake.
+**Current status:** M2 is done: the PCF85063A driver keeps trusted time and runs the countdown timer, and `power_sleep` switches the board off. A button press wakes it with reason BUTTON and the RTC timer with TIMER, both from a real power-off. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), and the M1 control run (keep-alive disabled, expect power-off at about 6 s). Next is M3, the buttons.
 
 ## Hardware
 
@@ -85,7 +85,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 |---|---|---|---|---|
 | ✅ | M0 | Project skeleton | Directories, partition table, `sdkconfig.defaults`, pin map | CI passes, logs appear on serial |
 | ✅ | M1 | `board` + `mcp23017` + `power` keep-alive | `i2c_master` driver, port the BANK switch and `powerEarlyInit` | Stays powered for more than 6 s on battery |
-| ⬜ | M2 | `pcf85063a` + shutdown/wake | Time read/write, countdown timer, `powerSleep` | Buttons and the RTC both wake the device, with the correct wake reason |
+| ✅ | M2 | `pcf85063a` + shutdown/wake | Time read/write, countdown timer, `powerSleep` | Buttons and the RTC both wake the device, with the correct wake reason |
 | ⬜ | M3 | `button` | INT interrupt notifies a task, debounce and long press | Click and long press work on all 5 buttons |
 | ⬜ | M4 | VBAT + NVS | Calibrated `esp_adc` reads, battery level stored in NVS | Reading matches a multimeter within an acceptable error |
 | ⬜ | M5 | `st75256` | SPI bus, init sequence, LEDC backlight, an interface that writes 2bpp data to a window, not tied to a graphics library | 4-level gray test pattern displays correctly |
@@ -137,10 +137,12 @@ The PCF85063A remains the source of wall-clock time.
 
 ### Power and timing
 
-- **Boot order:** the first thing `app_main` does must be `board_i2c_init`, `mcp23017_init` and `power_early_init`. Do not use `ESP_ERROR_CHECK` on this path, or a single I2C error could cause a reboot loop.
+- **Boot order:** the first thing `app_main` does must be `board_i2c_init`, `mcp23017_init`, `pcf85063a_init` and `power_early_init`. `pcf85063a_init` may run before the keep-alive because it never clears a wake flag. `button_init` (M3) must come after `power_early_init`: reading GPIOB clears the INTF bits the wake reason is taken from. Do not use `ESP_ERROR_CHECK` on this path, or a single I2C error could cause a reboot loop.
 - **OLATA races:** `power` and `display` both read-modify-write OLATA. Shared registers must only be changed through `mcp23017_update_reg`, which holds a lock across the read and the write.
 - **Back-feeding through pins:** `gpio_reset_pin()` enables a pull-up, so using it to release the I2S and SD pins before power-off would back-feed the unpowered rail. Use `gpio_config` to set them as floating inputs. `sdspi_host.c` also enables pull-ups, so M6 must check which pins are affected and measure shutdown current.
-- **Shutdown fallback path:** the end of `powerSleep`, which calls `esp_restart` with SLEEP_REQ still set if the MCU is still running, must stay as it is. Wake reason detection depends on it.
+- **Shutdown fallback path:** the end of `power_sleep`, which calls `esp_restart` with SLEEP_REQ still set if the MCU is still running, must stay as it is. Wake reason detection depends on it.
+- **Port B setup in `power_sleep`:** it sets the button pull-ups (IODIRB, GPPUB) itself, because a fresh MCP after a battery insert has none and the button module does not exist yet. Once M3 owns these registers, drop that step from `power_sleep`.
+- **Testing sleep:** the USB-JTAG port disappears while the board is off, so a monitor does not follow it through a sleep and reflashing only works while it is awake (reinsert the battery or press a button first). To see what happened during a wake, log to NVS and read it on a later boot. The sleep test is in `main.c` behind `M2_SLEEP_TEST`.
 
 ### Buses and peripherals
 

@@ -18,6 +18,9 @@
 
 // ── WS2812B LED ──────────────────────────────────────────
 #define PIN_LED 8
+// The LED on the current DevKit takes RGB order, not the usual WS2812 GRB:
+// with GRB, red and green swap (checked 2026-11-10). For led_strip.
+#define PIN_LED_COLOR_FORMAT LED_STRIP_COLOR_COMPONENT_FMT_RGB
 
 // ── I2C ──────────────────────────────────────────────────
 #define PIN_I2C_SDA 6

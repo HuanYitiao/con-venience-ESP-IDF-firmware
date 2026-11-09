@@ -30,3 +30,8 @@ esp_err_t power_early_init(void);
 power_wake_t power_wake_reason(void);
 const char  *power_wake_name(power_wake_t w);
 
+// Turns the MCU off. Wakes on a button press, and after wake_after_sec
+// seconds if non-zero (RTC countdown). Peripherals must already be shut down.
+// Does not return: if a wake source is already pending the MCU restarts
+// instead, and the next boot reports that wake reason.
+void power_sleep(uint32_t wake_after_sec) __attribute__((noreturn));
