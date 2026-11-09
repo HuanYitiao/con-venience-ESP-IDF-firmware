@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 #include "led_strip.h"
 #include "mcp23017.h"
+#include "pcf85063a.h"
 #include "power.h"
 
 static const char *TAG = "con-venience";
@@ -53,6 +54,12 @@ void app_main(void)
     if (err == ESP_OK)
     {
         err = power_early_init();
+    }
+
+    err = pcf85063a_init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "PCF85063A init failed: %s", esp_err_to_name(err));
     }
 
     if (err == ESP_OK)
