@@ -1,7 +1,5 @@
 #pragma once
 
-#include <stdbool.h>
-
 #include "esp_err.h"
 
 // How the MCU is kept alive / switched off (DigiFur Rev1.0, sheet MCU):
@@ -13,11 +11,22 @@
 //   - /INT pulled low (button or RTC) -> ESP32 cold-boots.
 //   - U1 holds MCU_EN high for ~6 s after +3.3V_MCU comes up.
 
-// Keep-alive. Call right after mcp23017_init(), before anything that touches
-// a wake source. Drops SLEEP_REQ and puts every power output (Port A, except
-// LCD_RST) into its off state.
+typedef enum
+{
+    POWER_WAKE_COLD_BOOT,  // battery inserted, reset or restart (SLEEP_REQ was 0)
+    POWER_WAKE_BUTTON,     // MCP23017 INTB
+    POWER_WAKE_TIMER,      // PCF85063A countdown timer
+    POWER_WAKE_OTHER,      // was asleep, but no wake flag found
+} power_wake_t;
+
+// Keep-alive, then wake reason. Call right after mcp23017_init() and
+// pcf85063a_init() (neither clears a wake flag), before anything else that
+// touches a wake source. Drops SLEEP_REQ and puts every power output (Port A,
+// except LCD_RST) into its off state, then records and clears the wake flags.
+// The return value only reports the keep-alive.
 esp_err_t power_early_init(void);
 
-// SLEEP_REQ as found by power_early_init(): true = woke from powerSleep,
-// false = cold boot. Basis for the wake reason in M2.
-bool power_was_asleep(void);
+// Wake reason found by power_early_init().
+power_wake_t power_wake_reason(void);
+const char  *power_wake_name(power_wake_t w);
+

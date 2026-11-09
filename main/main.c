@@ -127,6 +127,9 @@ void app_main(void)
     {
         err = mcp23017_init();
     }
+    // Before power_early_init, which reads the RTC flags. Safe this early:
+    // init never clears a wake flag, so a waking INT keeps holding the power.
+    esp_err_t rtc_err = pcf85063a_init();
     if (err == ESP_OK)
     {
         err = power_early_init();
@@ -134,22 +137,21 @@ void app_main(void)
 
     if (err == ESP_OK)
     {
-        ESP_LOGI(TAG, "Keep-alive set, %s", power_was_asleep() ? "woke from sleep" : "cold boot");
+        ESP_LOGI(TAG, "Keep-alive set, wake: %s", power_wake_name(power_wake_reason()));
     }
     else
     {
         ESP_LOGE(TAG, "Keep-alive failed: %s", esp_err_to_name(err));
     }
 
-    err = pcf85063a_init();
-    if (err == ESP_OK)
+    if (rtc_err == ESP_OK)
     {
         rtc_test();
         timer_test();
     }
     else
     {
-        ESP_LOGE(TAG, "PCF85063A init failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "PCF85063A init failed: %s", esp_err_to_name(rtc_err));
     }
 
     uint8_t found = 0;
