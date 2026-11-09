@@ -22,3 +22,11 @@ typedef struct
 // Attaches the chip to the I2C bus and disables CLKOUT. Leaves AF/TF alone:
 // the RTC may be the reason the MCU just woke up.
 esp_err_t pcf85063a_init(void);
+
+// Sets the clock and marks it trusted. The seal (RAM byte) is cleared first
+// and written last, so a write cut short leaves the time untrusted.
+esp_err_t pcf85063a_set_time(const pcf85063a_time_t *t);
+
+// Reads the clock. *trusted is true only if the oscillator never stopped and
+// the last set_time completed. Fail-closed: false on any error.
+esp_err_t pcf85063a_read_time(pcf85063a_time_t *t, bool *trusted);

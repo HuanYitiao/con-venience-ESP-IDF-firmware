@@ -42,6 +42,33 @@ static void blink_forever(void)
     }
 }
 
+// M2 step 2 test: sets a fixed time once, later boots must find it trusted.
+static void rtc_test(void)
+{
+    pcf85063a_time_t t = {0};
+    bool             trusted = false;
+    esp_err_t        err = pcf85063a_read_time(&t, &trusted);
+    if (err == ESP_OK && !trusted)
+    {
+        ESP_LOGW(TAG, "RTC untrusted, setting it");
+        const pcf85063a_time_t set = {
+            .year = 2026, .month = 11, .day = 9, .hours = 12, .minutes = 0, .seconds = 0};
+        err = pcf85063a_set_time(&set);
+        if (err == ESP_OK)
+        {
+            err = pcf85063a_read_time(&t, &trusted);
+        }
+    }
+
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "RTC failed: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "RTC %04u-%02u-%02u %02u:%02u:%02u, %s", t.year, t.month, t.day, t.hours,
+             t.minutes, t.seconds, trusted ? "trusted" : "untrusted");
+}
+
 void app_main(void)
 {
     // No ESP_ERROR_CHECK here: an I2C error must not turn into a reboot loop.
@@ -56,12 +83,6 @@ void app_main(void)
         err = power_early_init();
     }
 
-    err = pcf85063a_init();
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "PCF85063A init failed: %s", esp_err_to_name(err));
-    }
-
     if (err == ESP_OK)
     {
         ESP_LOGI(TAG, "Keep-alive set, %s", power_was_asleep() ? "woke from sleep" : "cold boot");
@@ -69,6 +90,16 @@ void app_main(void)
     else
     {
         ESP_LOGE(TAG, "Keep-alive failed: %s", esp_err_to_name(err));
+    }
+
+    err = pcf85063a_init();
+    if (err == ESP_OK)
+    {
+        rtc_test();
+    }
+    else
+    {
+        ESP_LOGE(TAG, "PCF85063A init failed: %s", esp_err_to_name(err));
     }
 
     uint8_t found = 0;
