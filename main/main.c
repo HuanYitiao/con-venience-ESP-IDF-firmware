@@ -2,6 +2,7 @@
 
 #include "board_i2c.h"
 #include "board_pins.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -69,6 +70,54 @@ static void rtc_test(void)
              t.minutes, t.seconds, trusted ? "trusted" : "untrusted");
 }
 
+// M2 step 3 test: a 5 s countdown must set TF and pull the shared INT line
+// (GPIO5) low, and clearing the flag must release it again.
+static void timer_test(void)
+{
+    const gpio_config_t int_cfg = {
+        .pin_bit_mask = 1ULL << PIN_MCP_INT,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    esp_err_t err = gpio_config(&int_cfg);
+    if (err == ESP_OK)
+    {
+        err = pcf85063a_start_timer(5);
+    }
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Timer start failed: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "Timer started, 5 s");
+
+    for (int i = 1; i <= 8; i++)
+    {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        uint8_t flags = 0;
+        err = pcf85063a_read_flags(&flags);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Read flags failed: %s", esp_err_to_name(err));
+            break;
+        }
+        ESP_LOGI(TAG, "t=%d s: TF=%d INT=%d", i, (flags & PCF85063A_FLAG_TF) ? 1 : 0,
+                 gpio_get_level(PIN_MCP_INT));
+    }
+
+    err = pcf85063a_clear_flags();
+    if (err == ESP_OK)
+    {
+        err = pcf85063a_stop_timer();
+    }
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Timer cleanup failed: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "Flags cleared, timer stopped: INT=%d", gpio_get_level(PIN_MCP_INT));
+}
+
 void app_main(void)
 {
     // No ESP_ERROR_CHECK here: an I2C error must not turn into a reboot loop.
@@ -96,6 +145,7 @@ void app_main(void)
     if (err == ESP_OK)
     {
         rtc_test();
+        timer_test();
     }
     else
     {

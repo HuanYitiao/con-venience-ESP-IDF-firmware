@@ -30,3 +30,16 @@ esp_err_t pcf85063a_set_time(const pcf85063a_time_t *t);
 // Reads the clock. *trusted is true only if the oscillator never stopped and
 // the last set_time completed. Fail-closed: false on any error.
 esp_err_t pcf85063a_read_time(pcf85063a_time_t *t, bool *trusted);
+
+// Countdown timer on the open-drain INT pin. INT stays low until
+// pcf85063a_clear_flags(). Periodic: reloads and fires again. Up to 255 s at
+// 1 Hz, beyond that rounded up to whole minutes (max 255 min, longer returns
+// ESP_ERR_INVALID_ARG).
+esp_err_t pcf85063a_start_timer(uint32_t seconds);
+// Stops the timer and leaves it on the 1/60 Hz clock, which draws the least.
+esp_err_t pcf85063a_stop_timer(void);
+
+// AF/TF as currently set (PCF85063A_FLAG_*).
+esp_err_t pcf85063a_read_flags(uint8_t *flags);
+// Clears AF and TF, which releases INT.
+esp_err_t pcf85063a_clear_flags(void);

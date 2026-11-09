@@ -17,6 +17,14 @@
 #define TIME_VALID_MAGIC 0xA5
 #define YEAR_BASE 2000
 
+#define REG_TIMER_VALUE 0x10
+#define REG_TIMER_MODE 0x11
+
+#define TMODE_TCF_1HZ 0x10
+#define TMODE_TCF_1_60HZ 0x18
+#define TMODE_TE 0x04
+#define TMODE_TIE 0x02
+
 static i2c_master_dev_handle_t dev;
 
 static esp_err_t read_regs(uint8_t reg, uint8_t *buf, size_t len)
@@ -151,4 +159,77 @@ esp_err_t pcf85063a_read_time(pcf85063a_time_t *t, bool *trusted)
     }
     *trusted = !(b[0] & SECONDS_OS) && ram == TIME_VALID_MAGIC;
     return ESP_OK;
+}
+
+esp_err_t pcf85063a_read_flags(uint8_t *flags)
+{
+    uint8_t   ctrl2 = 0;
+    esp_err_t err = read_regs(REG_CONTROL_2, &ctrl2, 1);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    *flags = ctrl2 & (PCF85063A_FLAG_AF | PCF85063A_FLAG_TF);
+    return ESP_OK;
+}
+
+esp_err_t pcf85063a_clear_flags(void)
+{
+    uint8_t   ctrl2 = 0;
+    esp_err_t err = read_regs(REG_CONTROL_2, &ctrl2, 1);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    return write_reg(REG_CONTROL_2, (uint8_t)((ctrl2 & CTRL2_AIE) | CTRL2_COF_OFF));
+}
+
+esp_err_t pcf85063a_stop_timer(void)
+{
+    return write_reg(REG_TIMER_MODE, TMODE_TCF_1_60HZ);
+}
+
+esp_err_t pcf85063a_start_timer(uint32_t seconds)
+{
+    if (seconds == 0)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Timer_mode selects the clock, Timer_value holds the count: keep them apart.
+    uint8_t  tcf = TMODE_TCF_1HZ;
+    uint32_t ticks = seconds;
+    if (seconds > 255)
+    {
+        tcf = TMODE_TCF_1_60HZ;
+        ticks = (seconds + 59) / 60;
+        if (ticks > 255)
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    // Stop the timer before reloading so the new value is taken cleanly.
+    esp_err_t err = write_reg(REG_TIMER_MODE, tcf);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    err = write_reg(REG_TIMER_VALUE, (uint8_t)ticks);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    // A stale TF would pull INT low right away.
+    err = pcf85063a_clear_flags();
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    // TI_TP stays 0: INT is held low until the flag is cleared, long enough
+    // for the MCU to power up and see it.
+    return write_reg(REG_TIMER_MODE, tcf | TMODE_TE | TMODE_TIE);
 }
