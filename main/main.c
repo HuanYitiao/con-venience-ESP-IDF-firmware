@@ -2,6 +2,7 @@
 
 #include "board_i2c.h"
 #include "board_pins.h"
+#include "button.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -33,6 +34,16 @@ static led_strip_handle_t led_init(void)
         return NULL;
     }
     return led;
+}
+
+// M3 test: every click and long press shows up in the log.
+static void on_button(button_id_t id, button_action_t action)
+{
+    static const char *const names[BUTTON_COUNT] = {
+        [BUTTON_UP] = "UP",       [BUTTON_DOWN] = "DOWN", [BUTTON_LEFT] = "LEFT",
+        [BUTTON_RIGHT] = "RIGHT", [BUTTON_PAIR] = "PAIR",
+    };
+    ESP_LOGI(TAG, "Button %s %s", names[id], action == BUTTON_LONG_PRESS ? "long press" : "click");
 }
 
 #if M2_SLEEP_TEST
@@ -209,6 +220,14 @@ void app_main(void)
     else
     {
         ESP_LOGE(TAG, "PCF85063A init failed: %s", esp_err_to_name(rtc_err));
+    }
+
+    // After power_early_init (wake reason) and after timer_test, whose RTC
+    // flag holds the shared INT line low for a few seconds.
+    err = button_init(on_button);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Button init failed: %s", esp_err_to_name(err));
     }
 
     uint8_t found = 0;

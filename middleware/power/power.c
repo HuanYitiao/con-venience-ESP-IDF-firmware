@@ -150,12 +150,7 @@ static void log_if_failed(esp_err_t err, const char *what)
 void power_sleep(uint32_t wake_after_sec)
 {
     // 1. Let go of the button first, so the release can't count as a wake.
-    //    Buttons pull to ground; without the pull-ups (a fresh MCP after a
-    //    battery insert has none) they would float. Set them here, as the
-    //    button module does not exist yet.
-    log_if_failed(mcp23017_update_reg(MCP_IODIRB, MCP_BTN_MASK, MCP_BTN_MASK), "IODIRB");
-    log_if_failed(mcp23017_update_reg(MCP_GPPUB, MCP_BTN_MASK, MCP_BTN_MASK), "GPPUB");
-
+    //    Relies on button_init() having set the Port B pull-ups.
     TickType_t t0 = xTaskGetTickCount();
     while (xTaskGetTickCount() - t0 < pdMS_TO_TICKS(POWER_BTN_RELEASE_TIMEOUT_MS))
     {
