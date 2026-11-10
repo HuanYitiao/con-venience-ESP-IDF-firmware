@@ -4,7 +4,7 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
 
-**Current status:** M2 is done: the PCF85063A driver keeps trusted time and runs the countdown timer, and `power_sleep` switches the board off. A button press wakes it with reason BUTTON and the RTC timer with TIMER, both from a real power-off. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), and the M1 control run (keep-alive disabled, expect power-off at about 6 s). M3 is done: all 5 buttons give click and long press events, and a button still held from the wake press gives none. Next is M4, VBAT and NVS.
+**Current status:** M0 to M4 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. Next is M5, the display.
 
 ## Hardware
 
@@ -87,7 +87,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 | ✅ | M1 | `board` + `mcp23017` + `power` keep-alive | `i2c_master` driver, port the BANK switch and `powerEarlyInit` | Stays powered for more than 6 s on battery |
 | ✅ | M2 | `pcf85063a` + shutdown/wake | Time read/write, countdown timer, `powerSleep` | Buttons and the RTC both wake the device, with the correct wake reason |
 | ✅ | M3 | `button` | INT interrupt notifies a task, debounce and long press | Click and long press work on all 5 buttons |
-| ⬜ | M4 | VBAT + NVS | Calibrated `esp_adc` reads, battery level stored in NVS | Reading matches a multimeter within an acceptable error |
+| ✅ | M4 | VBAT + NVS | Calibrated `esp_adc` reads, battery level stored in NVS | Reading matches a multimeter within an acceptable error |
 | ⬜ | M5 | `st75256` | SPI bus, init sequence, LEDC backlight, an interface that writes 2bpp data to a window, not tied to a graphics library | 4-level gray test pattern displays correctly |
 | ⬜ | M6 | `sdcard` | SPI shared with the display, mount/unmount, card detect | Old cards read and write, alternating display and SD access causes no errors |
 | ⬜ | M7 | `audio` | The I2S code mostly carries over, remove the Arduino calls | Startup sound plays with no pop |
@@ -118,7 +118,7 @@ The self-test from the old `test_main.cpp` moves over after all middleware modul
 |---|---|---|
 | Wire | `i2c_master` | Reads must return an error, not 0xFF as the old code does |
 | SPI / SD | `spi_master` + `esp_vfs_fat_sdspi_mount` | Paths need the mount point prefix |
-| Preferences | `nvs_flash` | Only the battery level uses it |
+| Preferences | `nvs_flash` | Only the battery level uses it, same namespace and key as before (`power` / `batLevel`). `main` calls `nvs_flash_init` |
 | NimBLE-Arduino | IDF's built-in NimBLE (C API) | Consider `esp-nimble-cpp` only if this does not work out |
 | WebServer / DNSServer | `esp_http_server` + the DNS component from the captive_portal example | No ready-made multipart parser |
 | ArduinoJson | `espressif/cjson` or `bblanchon/arduinojson` | v6.1 no longer bundles a json component |

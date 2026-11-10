@@ -1,14 +1,17 @@
 #include <stdbool.h>
 
 #include "board_i2c.h"
+#include "battery.h"
 #include "board_pins.h"
 #include "button.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "led_strip.h"
 #include "mcp23017.h"
+#include "nvs_flash.h"
 #include "pcf85063a.h"
 #include "power.h"
 
@@ -105,6 +108,52 @@ static void blink_forever(void)
     }
 }
 #endif
+
+// Standard IDF init: a full or outdated NVS partition is erased and set up again.
+static esp_err_t nvs_init(void)
+{
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        err = nvs_flash_erase();
+        if (err == ESP_OK)
+        {
+            err = nvs_flash_init();
+        }
+    }
+    return err;
+}
+
+// M4 test: VBAT against a multimeter, and the gauge. The level must survive
+// a sleep and be forgotten after a battery reinsert.
+static void battery_test(void)
+{
+    esp_err_t err = battery_init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Battery init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    // COLD_BOOT also covers esp_restart, panic and watchdog resets; only a
+    // real power-up means the cells may have been swapped.
+    bool powered_up = power_wake_reason() == POWER_WAKE_COLD_BOOT
+                      && esp_reset_reason() == ESP_RST_POWERON;
+    battery_level_init(powered_up);
+
+    for (int i = 0; i < 3; i++)
+    {
+        uint16_t mv = 0;
+        err = battery_read_mv(&mv);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "VBAT read failed: %s", esp_err_to_name(err));
+            return;
+        }
+        battery_level_update(mv);
+        ESP_LOGI(TAG, "VBAT %u mV, level %u/%u", mv, battery_level(), BATTERY_LEVELS);
+    }
+}
 
 // M2 step 2 test: sets a fixed time once, later boots must find it trusted.
 static void rtc_test(void)
@@ -228,6 +277,16 @@ void app_main(void)
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Button init failed: %s", esp_err_to_name(err));
+    }
+
+    err = nvs_init();
+    if (err == ESP_OK)
+    {
+        battery_test();
+    }
+    else
+    {
+        ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(err));
     }
 
     uint8_t found = 0;
