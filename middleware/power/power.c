@@ -27,6 +27,8 @@ static const char *TAG = "power";
 #define POWER_U1_HOLD_MAX_MS 8000
 // Time for the USB serial port to send the last log line.
 #define POWER_LOG_DRAIN_MS 20
+// TPS63900 soft start + TPS22917 (SD rail, CT=470p) rise, with margin.
+#define POWER_PERIPH_SETTLE_MS 10
 
 static power_wake_t wake_reason = POWER_WAKE_COLD_BOOT;
 
@@ -135,6 +137,28 @@ const char *power_wake_name(power_wake_t w)
         default:
             return "OTHER";
     }
+}
+
+esp_err_t power_periph_on(void)
+{
+    const uint8_t en = 1 << PIN_MCP_PWR_PERIPH_EN;
+    esp_err_t     err = mcp23017_update_reg(MCP_OLATA, en, en);
+    if (err == ESP_OK)
+    {
+        vTaskDelay(pdMS_TO_TICKS(POWER_PERIPH_SETTLE_MS));
+    }
+    return err;
+}
+
+esp_err_t power_periph_off(void)
+{
+    // Amp into shutdown before its supply goes away.
+    esp_err_t err = mcp23017_update_reg(MCP_OLATA, 1 << PIN_MCP_SPK_EN, 0);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    return mcp23017_update_reg(MCP_OLATA, 1 << PIN_MCP_PWR_PERIPH_EN, 0);
 }
 
 static void log_if_failed(esp_err_t err, const char *what)

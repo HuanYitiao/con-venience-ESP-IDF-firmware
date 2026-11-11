@@ -30,6 +30,12 @@ esp_err_t power_early_init(void);
 power_wake_t power_wake_reason(void);
 const char  *power_wake_name(power_wake_t w);
 
+// +3.3V_PERIPH: LCD backlight, speaker amp, and +3.3V_SD via the card-detect
+// load switch. On waits for the rail to settle. Off also shuts the speaker
+// amp down first (no pop). power_sleep() switches it off as well.
+esp_err_t power_periph_on(void);
+esp_err_t power_periph_off(void);
+
 // Turns the MCU off. Wakes on a button press, and after wake_after_sec
 // seconds if non-zero (RTC countdown). Peripherals must already be shut down.
 // Does not return: if a wake source is already pending the MCU restarts
