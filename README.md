@@ -4,7 +4,7 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
 
-**Current status:** M0 to M4 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. Next is M5, the display.
+**Current status:** M0 to M5 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. Next is M6, the SD card.
 
 ## Hardware
 
@@ -41,7 +41,7 @@ Configuration changes go in [sdkconfig.defaults](sdkconfig.defaults).
 
 ## Directory layout
 
-`middleware/board` exists. Everything else is planned.
+`middleware/` up to `st75256` exists. Everything else is planned.
 
 ```
 con-venience-ESP-IDF-firmware/
@@ -88,7 +88,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 | ✅ | M2 | `pcf85063a` + shutdown/wake | Time read/write, countdown timer, `powerSleep` | Buttons and the RTC both wake the device, with the correct wake reason |
 | ✅ | M3 | `button` | INT interrupt notifies a task, debounce and long press | Click and long press work on all 5 buttons |
 | ✅ | M4 | VBAT + NVS | Calibrated `esp_adc` reads, battery level stored in NVS | Reading matches a multimeter within an acceptable error |
-| ⬜ | M5 | `st75256` | SPI bus, init sequence, LEDC backlight, an interface that writes 2bpp data to a window, not tied to a graphics library | 4-level gray test pattern displays correctly |
+| ✅ | M5 | `st75256` | SPI bus, init sequence, LEDC backlight, an interface that writes 2bpp data to a window, not tied to a graphics library | 4-level gray test pattern displays correctly |
 | ⬜ | M6 | `sdcard` | SPI shared with the display, mount/unmount, card detect | Old cards read and write, alternating display and SD access causes no errors |
 | ⬜ | M7 | `audio` | The I2S code mostly carries over, remove the Arduino calls | Startup sound plays with no pop |
 | ⬜ | M8 | `ble_link` | Rewrite the transport on NimBLE, GATT protocol unchanged | Two-way transfer with old firmware succeeds |
@@ -146,8 +146,9 @@ The PCF85063A remains the source of wall-clock time.
 
 ### Buses and peripherals
 
-- **Shared SPI:** the old code initializes SD before the display, while the LCD CS is not yet driven. The IDF version must drive CS high or add the display device before mounting SD.
-- **Display transfers:** the old code runs one transaction per byte. Send each window as a batch, with DC controlled separately.
+- **Shared SPI:** the old code initializes SD before the display, while the LCD CS is not yet driven. `st75256_init` adds the display device, which drives its CS high, so it must run before the SD card is mounted. `power_periph_on` must come before `board_spi_init`: driving the bus into an unpowered SD card back-feeds it.
+- **Display transfers:** `st75256` uses the `esp_lcd` SPI panel IO (no panel driver; IDF has none for the ST75256). Each window goes out as one DMA transfer, and `st75256_write` blocks until it is done. LVGL's `flush_cb` will want an async variant.
+- **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), the rest are the old values. To retune, set `M5_DISPLAY_TUNE` in `main.c` and adjust with the buttons. The meaning of the `line_inv` bits and the frame rate command format are not checked against the datasheet.
 - **ACOM single wire:** `uart_set_pin` supports the same pin for TX and RX. Call `gpio_od_enable` after configuring it. The header warns that open-drain should be applied ahead of time, or the two ends can drive against each other. Keep the echo filtering.
 - **Button INT:** the line is wire-ORed with the RTC. If an interrupt is not cleared, no further falling edge arrives, so `button` reads GPIOB every second while idle as a fallback. While a button is held or bouncing it polls every 10 ms instead of waiting for edges, so a release lost in a bounce is still seen. Events fire on release: LONG_PRESS after 300 ms, otherwise CLICK. A button already held at `button_init` (the wake press) gives no event.
 - **Watchdog:** the C6 is single-core. The main loop must block or call `vTaskDelay`, or the task watchdog fires.
