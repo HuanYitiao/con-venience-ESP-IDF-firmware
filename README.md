@@ -1,5 +1,10 @@
 # con-venience Firmware
 
+[![CI](https://github.com/HuanYitiao/con-venience-ESP-IDF-firmware/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HuanYitiao/con-venience-ESP-IDF-firmware/actions/workflows/ci.yml)
+[![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v6.1-E7352C)](https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32c6/)
+[![Target](https://img.shields.io/badge/target-ESP32--C6-blue)](https://www.espressif.com/en/products/socs/esp32-c6)
+[![Last commit](https://img.shields.io/github/last-commit/HuanYitiao/con-venience-ESP-IDF-firmware)](https://github.com/HuanYitiao/con-venience-ESP-IDF-firmware/commits/main)
+
 con-venience is a wearable social device for fursuiters: two wearers touch their devices together to exchange contact information.
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
@@ -97,7 +102,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 
 BLE comes before ACOM because ACOM sends the BLE address and address type, which are only available once the NimBLE host has started.
 
-M0 builds locally. CI and serial logs are not verified yet.
+CI builds every push to `main` and every pull request with ESP-IDF v6.1 for the ESP32-C6. It only checks that the firmware builds; hardware tests are run by hand on the PCB.
 
 The self-test from the old `test_main.cpp` moves over after all middleware modules are done, behind a `CONFIG_CONVENIENCE_SELFTEST` option. Its I2C check can use `board_i2c_scan()`.
 
@@ -188,4 +193,4 @@ The PCF85063A remains the source of wall-clock time.
 
 ## License
 
-To be decided. The original project uses the MIT License.
+Covered by the license of the con-venience project.
