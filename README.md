@@ -9,7 +9,7 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
 
-**Current status:** M0 to M5 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. Next is M6, the SD card.
+**Current status:** M0 to M6 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. A 16 GB card with old-firmware data mounts, reads, writes and survives 50 rounds of alternating display and SD access; an old 4 GB card reads but fails to write (see the SD pull-up note). Next is M7, audio.
 
 ## Hardware
 
@@ -53,7 +53,7 @@ con-venience-ESP-IDF-firmware/
 ├── CMakeLists.txt
 ├── partitions.csv
 ├── sdkconfig.defaults
-├── main/                   # app_main only: boot order
+├── main/                   # app_main (boot order) and hw_tests (one milestone test at a time)
 ├── middleware/             # must not depend on application
 │   ├── board/              # pin map, I2C/SPI bus handles
 │   ├── mcp23017/
@@ -94,7 +94,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 | ✅ | M3 | `button` | INT interrupt notifies a task, debounce and long press | Click and long press work on all 5 buttons |
 | ✅ | M4 | VBAT + NVS | Calibrated `esp_adc` reads, battery level stored in NVS | Reading matches a multimeter within an acceptable error |
 | ✅ | M5 | `st75256` | SPI bus, init sequence, LEDC backlight, an interface that writes 2bpp data to a window, not tied to a graphics library | 4-level gray test pattern displays correctly |
-| ⬜ | M6 | `sdcard` | SPI shared with the display, mount/unmount, card detect | Old cards read and write, alternating display and SD access causes no errors |
+| ✅ | M6 | `sdcard` | SPI shared with the display, mount/unmount, card detect | Old cards read and write, alternating display and SD access causes no errors |
 | ⬜ | M7 | `audio` | The I2S code mostly carries over, remove the Arduino calls | Startup sound plays with no pop |
 | ⬜ | M8 | `ble_link` | Rewrite the transport on NimBLE, GATT protocol unchanged | Two-way transfer with old firmware succeeds |
 | ⬜ | M9 | `acom` | Single-wire UART, open-drain output | MAC exchange with an old-firmware device succeeds |
@@ -144,16 +144,17 @@ The PCF85063A remains the source of wall-clock time.
 
 - **Boot order:** the first thing `app_main` does must be `board_i2c_init`, `mcp23017_init`, `pcf85063a_init` and `power_early_init`. `pcf85063a_init` may run before the keep-alive because it never clears a wake flag. `button_init` must come after `power_early_init`: reading GPIOB clears the INTF bits the wake reason is taken from. Do not use `ESP_ERROR_CHECK` on this path, or a single I2C error could cause a reboot loop.
 - **OLATA races:** `power` and `display` both read-modify-write OLATA. Shared registers must only be changed through `mcp23017_update_reg`, which holds a lock across the read and the write.
-- **Back-feeding through pins:** `gpio_reset_pin()` enables a pull-up, so using it to release the I2S and SD pins before power-off would back-feed the unpowered rail. Use `gpio_config` to set them as floating inputs. `sdspi_host.c` also enables pull-ups, so M6 must check which pins are affected and measure shutdown current.
+- **Back-feeding through pins:** `gpio_reset_pin()` enables a pull-up, so using it to release the I2S and SD pins before power-off would back-feed the unpowered rail. Use `gpio_config` to set them as floating inputs. `sdspi_host.c` only enables pull-ups on CD, WP and INT, which are not used here; unmount leaves SD CS as a floating input. Shutdown current is not measured yet.
 - **Shutdown fallback path:** the end of `power_sleep`, which calls `esp_restart` with SLEEP_REQ still set if the MCU is still running, must stay as it is. Wake reason detection depends on it.
 - **`power_sleep` needs `button_init`:** the button pull-ups (IODIRB, GPPUB) are set only by `button_init`, and a fresh MCP after a battery insert has none. Without them the buttons float, so `power_sleep` cannot wait for a release and a button wake is unreliable. The button task keeps running during `power_sleep`, so events can still arrive while it shuts down.
-- **Testing sleep:** the USB-JTAG port disappears while the board is off, so a monitor does not follow it through a sleep and reflashing only works while it is awake (reinsert the battery or press a button first). To see what happened during a wake, log to NVS and read it on a later boot. The sleep test is in `main.c` behind `M2_SLEEP_TEST`.
+- **Testing sleep:** the USB-JTAG port disappears while the board is off, so a monitor does not follow it through a sleep and reflashing only works while it is awake (reinsert the battery or press a button first). To see what happened during a wake, log to NVS and read it on a later boot. The sleep test is `HW_TEST_SLEEP` in `main/hw_tests.h`.
 
 ### Buses and peripherals
 
+- **SD pull-ups (hardware):** the card side of U17 has no pull-ups. SPI_MISO_ISOL (DAT0) floats whenever the card releases DO, and DAT1/DAT2 are left open, against the SD spec. A good card works; an old 4 GB card accepts a write, then never seems to leave busy, and reads time out afterwards. Next PCB revision: 10k to 47k pull-ups to +3.3V_SD on DAT0, DAT1, DAT2 and CMD. Software side: the MISO pull-up on GPIO10 keeps the ESP side from floating while U17 is off, and `wait_for_miso = -1` skips the driver's busy poll with CS high, which reads nothing on this board because CS also enables U17.
 - **Shared SPI:** the old code initializes SD before the display, while the LCD CS is not yet driven. `st75256_init` adds the display device, which drives its CS high, so it must run before the SD card is mounted. `power_periph_on` must come before `board_spi_init`: driving the bus into an unpowered SD card back-feeds it.
 - **Display transfers:** `st75256` uses the `esp_lcd` SPI panel IO (no panel driver; IDF has none for the ST75256). Each window goes out as one DMA transfer, and `st75256_write` blocks until it is done. LVGL's `flush_cb` will want an async variant.
-- **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), the rest are the old values. To retune, set `M5_DISPLAY_TUNE` in `main.c` and adjust with the buttons. The meaning of the `line_inv` bits and the frame rate command format are not checked against the datasheet.
+- **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), the rest are the old values. To retune, select `HW_TEST_DISPLAY_TUNE` in `main/hw_tests.h` and adjust with the buttons. The meaning of the `line_inv` bits and the frame rate command format are not checked against the datasheet.
 - **ACOM single wire:** `uart_set_pin` supports the same pin for TX and RX. Call `gpio_od_enable` after configuring it. The header warns that open-drain should be applied ahead of time, or the two ends can drive against each other. Keep the echo filtering.
 - **Button INT:** the line is wire-ORed with the RTC. If an interrupt is not cleared, no further falling edge arrives, so `button` reads GPIOB every second while idle as a fallback. While a button is held or bouncing it polls every 10 ms instead of waiting for edges, so a release lost in a bounce is still seen. Events fire on release: LONG_PRESS after 300 ms, otherwise CLICK. A button already held at `button_init` (the wake press) gives no event.
 - **Watchdog:** the C6 is single-core. The main loop must block or call `vTaskDelay`, or the task watchdog fires.
