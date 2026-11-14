@@ -139,6 +139,16 @@ const char *power_wake_name(power_wake_t w)
     }
 }
 
+bool power_usb_present(void)
+{
+    uint8_t gpiob = 0;
+    if (mcp23017_read_reg(MCP_GPIOB, &gpiob) != ESP_OK)
+    {
+        return false;
+    }
+    return (gpiob >> PIN_MCP_USB_PWR) & 1;
+}
+
 esp_err_t power_periph_on(void)
 {
     const uint8_t en = 1 << PIN_MCP_PWR_PERIPH_EN;

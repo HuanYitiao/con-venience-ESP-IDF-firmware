@@ -30,6 +30,9 @@ esp_err_t power_early_init(void);
 power_wake_t power_wake_reason(void);
 const char  *power_wake_name(power_wake_t w);
 
+// USB_PWR (MCP GPB1): true while powered from USB. False on a read error.
+bool power_usb_present(void);
+
 // +3.3V_PERIPH: LCD backlight, speaker amp, and +3.3V_SD via the card-detect
 // load switch. On waits for the rail to settle. Off also shuts the speaker
 // amp down first (no pop). power_sleep() switches it off as well.
