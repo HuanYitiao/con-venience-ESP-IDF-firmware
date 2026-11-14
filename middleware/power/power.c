@@ -31,6 +31,7 @@ static const char *TAG = "power";
 #define POWER_PERIPH_SETTLE_MS 10
 
 static power_wake_t wake_reason = POWER_WAKE_COLD_BOOT;
+static bool         periph_on;
 
 // Reads and clears the wake sources. Errors are only logged: the keep-alive
 // is already done, and an unreadable flag just counts as not set.
@@ -156,6 +157,7 @@ esp_err_t power_periph_on(void)
     if (err == ESP_OK)
     {
         vTaskDelay(pdMS_TO_TICKS(POWER_PERIPH_SETTLE_MS));
+        periph_on = true;
     }
     return err;
 }
@@ -168,7 +170,20 @@ esp_err_t power_periph_off(void)
     {
         return err;
     }
+    // Counted as off even if the write fails: the amp must not be enabled
+    // on a rail that may be down.
+    periph_on = false;
     return mcp23017_update_reg(MCP_OLATA, 1 << PIN_MCP_PWR_PERIPH_EN, 0);
+}
+
+esp_err_t power_speaker_set(bool on)
+{
+    if (on && !periph_on)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint8_t spk = 1 << PIN_MCP_SPK_EN;
+    return mcp23017_update_reg(MCP_OLATA, spk, on ? spk : 0);
 }
 
 static void log_if_failed(esp_err_t err, const char *what)

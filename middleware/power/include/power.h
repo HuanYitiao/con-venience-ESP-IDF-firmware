@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 
 // How the MCU is kept alive / switched off (DigiFur Rev1.0, sheet MCU):
@@ -38,6 +40,10 @@ bool power_usb_present(void);
 // amp down first (no pop). power_sleep() switches it off as well.
 esp_err_t power_periph_on(void);
 esp_err_t power_periph_off(void);
+
+// MAX98357A shutdown pin (SPK_EN, MCP GPA2). Switching it on needs
+// +3.3V_PERIPH: a high SD_MODE would back-power the unpowered amp.
+esp_err_t power_speaker_set(bool on);
 
 // Turns the MCU off. Wakes on a button press, and after wake_after_sec
 // seconds if non-zero (RTC countdown). Peripherals must already be shut down.
