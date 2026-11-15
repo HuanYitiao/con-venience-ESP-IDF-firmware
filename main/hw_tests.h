@@ -13,8 +13,11 @@
 #define HW_TEST_DISPLAY_TUNE 2
 // M6: card detect, mount, old card read, write/read, display and SD in turns.
 #define HW_TEST_SD 3
+// M7: the old startup beep, then a short melody as square and as sine wave.
+// Listen for clicks at the start and end of each.
+#define HW_TEST_AUDIO 4
 
-#define HW_TEST HW_TEST_SD
+#define HW_TEST HW_TEST_AUDIO
 
 // Runs the selected test after the boot sequence. display_ok: the display
 // (and with it +3.3V_PERIPH and the SPI bus) is up.

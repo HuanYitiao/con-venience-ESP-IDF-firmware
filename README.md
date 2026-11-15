@@ -9,7 +9,7 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
 
-**Current status:** M0 to M6 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. A 16 GB card with old-firmware data mounts, reads, writes and survives 50 rounds of alternating display and SD access; an old 4 GB card reads but fails to write (see the SD pull-up note). Next is M7, audio.
+**Current status:** M0 to M7 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. A 16 GB card with old-firmware data mounts, reads, writes and survives 50 rounds of alternating display and SD access; an old 4 GB card reads but fails to write (see the SD pull-up note). The startup beep and melodies play with no click at start or end. Next is M8, BLE.
 
 ## Hardware
 
@@ -62,7 +62,7 @@ con-venience-ESP-IDF-firmware/
 │   ├── button/
 │   ├── st75256/            # display bus, init, backlight
 │   ├── sdcard/
-│   ├── audio/
+│   ├── max98357a/          # I2S amp, tones
 │   ├── ble_link/
 │   ├── acom/
 │   └── wifi_ap/
@@ -95,7 +95,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 | ✅ | M4 | VBAT + NVS | Calibrated `esp_adc` reads, battery level stored in NVS | Reading matches a multimeter within an acceptable error |
 | ✅ | M5 | `st75256` | SPI bus, init sequence, LEDC backlight, an interface that writes 2bpp data to a window, not tied to a graphics library | 4-level gray test pattern displays correctly |
 | ✅ | M6 | `sdcard` | SPI shared with the display, mount/unmount, card detect | Old cards read and write, alternating display and SD access causes no errors |
-| ⬜ | M7 | `audio` | The I2S code mostly carries over, remove the Arduino calls | Startup sound plays with no pop |
+| ✅ | M7 | `max98357a` | The I2S code mostly carries over, remove the Arduino calls | Startup sound plays with no pop |
 | ⬜ | M8 | `ble_link` | Rewrite the transport on NimBLE, GATT protocol unchanged | Two-way transfer with old firmware succeeds |
 | ⬜ | M9 | `acom` | Single-wire UART, open-drain output | MAC exchange with an old-firmware device succeeds |
 | ⬜ | M10 | `wifi_ap` | SoftAP, DNS, HTTP infrastructure | Captive portal opens when a phone connects |
@@ -153,6 +153,7 @@ The PCF85063A remains the source of wall-clock time.
 
 - **SD pull-ups (hardware):** the card side of U17 has no pull-ups. SPI_MISO_ISOL (DAT0) floats whenever the card releases DO, and DAT1/DAT2 are left open, against the SD spec. A good card works; an old 4 GB card accepts a write, then never seems to leave busy, and reads time out afterwards. Next PCB revision: 10k to 47k pull-ups to +3.3V_SD on DAT0, DAT1, DAT2 and CMD. Software side: the MISO pull-up on GPIO10 keeps the ESP side from floating while U17 is off, and `wait_for_miso = -1` skips the driver's busy poll with CS high, which reads nothing on this board because CS also enables U17.
 - **Writes and power loss:** FAT has no journal. A reset or power loss while a file or the FAT is being written can leave a broken file or a damaged file system (seen in the M6 test: `idf.py flash monitor` resets the chip twice, and the first run gets cut off mid-test). `contacts` must write to a temporary file and rename it over the old one once it is complete.
+- **Speaker:** the small speaker barely reproduces a few hundred Hz. A square wave is heard mostly through its harmonics, a sine at 262 Hz is almost silent; the same sine two octaves up is clearly audible. UI sounds use square waves, ideally with fundamentals of 1 to 4 kHz. `max98357a` also holds the tone generator (waveforms, notes); move that up to `application` once it exists and keep the driver to I2S, amp sequencing and PCM writes.
 - **Shared SPI:** the old code initializes SD before the display, while the LCD CS is not yet driven. `st75256_init` adds the display device, which drives its CS high, so it must run before the SD card is mounted. `power_periph_on` must come before `board_spi_init`: driving the bus into an unpowered SD card back-feeds it.
 - **Display transfers:** `st75256` uses the `esp_lcd` SPI panel IO (no panel driver; IDF has none for the ST75256). Each window goes out as one DMA transfer, and `st75256_write` blocks until it is done. LVGL's `flush_cb` will want an async variant.
 - **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), the rest are the old values. To retune, select `HW_TEST_DISPLAY_TUNE` in `main/hw_tests.h` and adjust with the buttons. The meaning of the `line_inv` bits and the frame rate command format are not checked against the datasheet.
