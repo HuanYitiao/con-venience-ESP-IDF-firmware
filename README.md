@@ -9,7 +9,7 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
 
-**Current status:** M0 to M7 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. A 16 GB card with old-firmware data mounts, reads, writes and survives 50 rounds of alternating display and SD access; an old 4 GB card reads but fails to write (see the SD pull-up note). The startup beep and melodies play with no click at start or end. Next is M8, ACOM.
+**Current status:** M0 to M8 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. A 16 GB card with old-firmware data mounts, reads, writes and survives 50 rounds of alternating display and SD access; an old 4 GB card reads but fails to write (see the SD pull-up note). The startup beep and melodies play with no click at start or end. ACOM exchanges addresses with an old-firmware device, acked both ways, repeatably. Next is M9, BLE.
 
 ## Hardware
 
@@ -96,7 +96,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 | ✅ | M5 | `st75256` | SPI bus, init sequence, LEDC backlight, an interface that writes 2bpp data to a window, not tied to a graphics library | 4-level gray test pattern displays correctly |
 | ✅ | M6 | `sdcard` | SPI shared with the display, mount/unmount, card detect | Old cards read and write, alternating display and SD access causes no errors |
 | ✅ | M7 | `max98357a` | The I2S code mostly carries over, remove the Arduino calls | Startup sound plays with no pop |
-| ⬜ | M8 | `acom` | Single-wire UART, open-drain output | MAC exchange with an old-firmware device succeeds |
+| ✅ | M8 | `acom` | Single-wire UART, open-drain output | MAC exchange with an old-firmware device succeeds |
 | ⬜ | M9 | `ble_link` | Rewrite the transport on NimBLE, GATT protocol unchanged | Two-way transfer with old firmware succeeds |
 | ⬜ | M10 | `wifi_ap` | SoftAP, DNS, HTTP infrastructure | Captive portal opens when a phone connects |
 

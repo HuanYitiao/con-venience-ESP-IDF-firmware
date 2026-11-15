@@ -16,8 +16,11 @@
 // M7: the old startup beep, then a short melody as square and as sine wave.
 // Listen for clicks at the start and end of each.
 #define HW_TEST_AUDIO 4
+// M8: ACOM exchange with our BT MAC, repeated. Touch an old-firmware
+// device in pairing mode to the contact.
+#define HW_TEST_ACOM 5
 
-#define HW_TEST HW_TEST_AUDIO
+#define HW_TEST HW_TEST_ACOM
 
 // Runs the selected test after the boot sequence. display_ok: the display
 // (and with it +3.3V_PERIPH and the SPI bus) is up.
