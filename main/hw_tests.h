@@ -19,8 +19,11 @@
 // M8: ACOM exchange with our BT MAC, repeated. Touch an old-firmware
 // device in pairing mode to the contact.
 #define HW_TEST_ACOM 5
+// M9: ACOM, then a BLE transfer of a test profile ("M9 Test", gradient
+// avatar) in the old packing format. Role by MAC, as the old firmware.
+#define HW_TEST_BLE 6
 
-#define HW_TEST HW_TEST_ACOM
+#define HW_TEST HW_TEST_BLE
 
 // Runs the selected test after the boot sequence. display_ok: the display
 // (and with it +3.3V_PERIPH and the SPI bus) is up.
