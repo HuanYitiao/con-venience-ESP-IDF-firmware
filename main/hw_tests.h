@@ -22,8 +22,11 @@
 // M9: ACOM, then a BLE transfer of a test profile ("M9 Test", gradient
 // avatar) in the old packing format. Role by MAC, as the old firmware.
 #define HW_TEST_BLE 6
+// M10: soft AP with captive portal and a test page with a file upload.
+// BLE is started first, as in the real flow. PAIR long press: AP off/on.
+#define HW_TEST_WIFI 7
 
-#define HW_TEST HW_TEST_BLE
+#define HW_TEST HW_TEST_WIFI
 
 // Runs the selected test after the boot sequence. display_ok: the display
 // (and with it +3.3V_PERIPH and the SPI bus) is up.

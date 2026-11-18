@@ -9,7 +9,7 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This repository migrates [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware) (Arduino + PlatformIO, with working hardware and core features) to ESP-IDF. The work has two parts: first the hardware drivers in `middleware`, then the `application` built on top of them.
 
-**Current status:** M0 to M9 are done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. A 16 GB card with old-firmware data mounts, reads, writes and survives 50 rounds of alternating display and SD access; an old 4 GB card reads but fails to write (see the SD pull-up note). The startup beep and melodies play with no click at start or end. ACOM exchanges addresses with an old-firmware device, acked both ways, repeatably. BLE transfers a test profile both ways with an old-firmware device; NimBLE's address matches the BT MAC sent over ACOM. Only one BLE role is tested so far (the role follows the two MACs), the other needs a peer on the other side of the comparison. Next is M10, the Wi-Fi portal.
+**Current status:** the middleware (M0 to M10) is done. Buttons and the RTC timer wake the board from a real power-off with the right wake reason; all 5 buttons give click and long press events; VBAT reads within 0.5 % of a multimeter, and the battery level survives a reset and is forgotten after a battery reinsert. Not yet tested: the `power_sleep` fallback paths (a button still held at sleep, sleeping inside the U1 hold window), the M1 control run (keep-alive disabled, expect power-off at about 6 s), and stepping the battery level down. The display shows the 4-level gray test pattern with the right orientation and pixel order. A 16 GB card with old-firmware data mounts, reads, writes and survives 50 rounds of alternating display and SD access; an old 4 GB card reads but fails to write (see the SD pull-up note). The startup beep and melodies play with no click at start or end. ACOM exchanges addresses with an old-firmware device, acked both ways, repeatably. BLE transfers a test profile both ways with an old-firmware device; NimBLE's address matches the BT MAC sent over ACOM. Only one BLE role is tested so far (the role follows the two MACs), the other needs a peer on the other side of the comparison. The Wi-Fi portal opens by itself on an Android phone, and a 2 MB upload arrives complete from the phone's browser; BLE and the AP together leave about 200 KB of heap free. Next is the application, starting with A1.
 
 ## Hardware
 
@@ -98,7 +98,7 @@ Status: ✅ done, 🚧 in progress, ⬜ not started.
 | ✅ | M7 | `max98357a` | The I2S code mostly carries over, remove the Arduino calls | Startup sound plays with no pop |
 | ✅ | M8 | `acom` | Single-wire UART, open-drain output | MAC exchange with an old-firmware device succeeds |
 | ✅ | M9 | `ble_link` | Rewrite the transport on NimBLE, GATT protocol unchanged | Two-way transfer with old firmware succeeds |
-| ⬜ | M10 | `wifi_ap` | SoftAP, DNS, HTTP infrastructure | Captive portal opens when a phone connects |
+| ✅ | M10 | `wifi_ap` | SoftAP, DNS, HTTP infrastructure | Captive portal opens when a phone connects |
 
 ACOM comes before BLE. ACOM sends the BLE address and address type, but `acom` takes them as parameters instead of asking NimBLE (the old code called `NimBLEDevice::getAddress()` directly), so it does not depend on `ble_link`. For the M8 test the address comes from `esp_read_mac(..., ESP_MAC_BT)` with type 0 (public). M9 must check that this matches the address NimBLE advertises, including byte order: the old code reverses `addr->val`. `pairing` connects the two.
 
@@ -160,6 +160,15 @@ The PCF85063A remains the source of wall-clock time.
 - **ACOM single wire:** `uart_set_pin` supports the same pin for TX and RX. Call `gpio_od_enable` after configuring it. The header warns that open-drain should be applied ahead of time, or the two ends can drive against each other. Keep the echo filtering.
 - **Button INT:** the line is wire-ORed with the RTC. If an interrupt is not cleared, no further falling edge arrives, so `button` reads GPIOB every second while idle as a fallback. While a button is held or bouncing it polls every 10 ms instead of waiting for edges, so a release lost in a bounce is still seen. Events fire on release: LONG_PRESS after 300 ms, otherwise CLICK. A button already held at `button_init` (the wake press) gives no event.
 - **Watchdog:** the C6 is single-core. The main loop must block or call `vTaskDelay`, or the task watchdog fires.
+
+### Wi-Fi portal
+
+- **Android routing:** a Wi-Fi without internet does not become the default network while mobile data is on. A browser then sends `http://192.168.4.1/` over mobile data and the page never loads. The captive-portal sign-in window is bound to the Wi-Fi and does load. Choosing "stay connected" when Android asks, or turning mobile data off, makes the browser work too.
+- **Sign-in window:** it is a system WebView, not a browser. On Android, `<input type="file">` does nothing there (tested), so photos cannot be picked. Its user agent contains `; wv)`. `portal` should detect that and ask for the page in the browser at the step that needs a photo; everything else can stay in the window. iOS is not tested yet.
+- **Uploads:** shrink the avatar to 128x128 2bpp (4096 bytes) in the page before sending, as the old page did. A raw 2 MB upload took about 9 s.
+- **Captive detection:** DNS answers every name with 192.168.4.1, every unknown path is a 302 to `http://192.168.4.1/` with a body (iOS needs one), and DHCP option 114 carries the same URL (`WIFI_AP_DHCP_CAPTIVE_URI`). Faking a 204 answer to the probes does not help: Android also probes over HTTPS and then reports limited connectivity.
+- **Password:** new on every start and kept out of NVS. It is generated while Wi-Fi runs briefly as an idle station, because `esp_fill_random` is only truly random with the RF on.
+- **Memory (measured):** 314 KB free at boot, 286 KB with BLE, 215 KB with the AP up, 197 KB lowest during an upload.
 
 ### Display (LVGL)
 
