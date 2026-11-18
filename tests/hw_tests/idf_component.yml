@@ -1,0 +1,4 @@
+## IDF Component Manager Manifest File
+dependencies:
+  # Only the sleep test uses the DevKit's RGB LED.
+  espressif/led_strip: ^3.0.0

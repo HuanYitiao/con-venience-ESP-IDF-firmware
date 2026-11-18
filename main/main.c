@@ -102,10 +102,10 @@ static bool display_start(void)
     return true;
 }
 
-void app_main(void)
+// Keep-alive comes first: after a wake only the wake INT, and after a
+// battery insert only U1 (~6 s), holds the MCU up until SLEEP_REQ drops.
+static void power_start(void)
 {
-    // No ESP_ERROR_CHECK here: an I2C error must not turn into a reboot loop.
-    // Keep-alive comes first; U1 only holds the MCU up for ~6 s.
     esp_err_t err = board_i2c_init();
     if (err == ESP_OK)
     {
@@ -130,9 +130,16 @@ void app_main(void)
     {
         ESP_LOGE(TAG, "PCF85063A init failed: %s", esp_err_to_name(rtc_err));
     }
+}
+
+// Boot order matters; see README, "Boot order". No ESP_ERROR_CHECK on this
+// path: an I2C error must not turn into a reboot loop.
+void app_main(void)
+{
+    power_start();
 
     // After power_early_init: reading GPIOB clears the wake flags.
-    err = button_init(on_button);
+    esp_err_t err = button_init(on_button);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Button init failed: %s", esp_err_to_name(err));
@@ -150,5 +157,7 @@ void app_main(void)
 
     bool display_ok = display_start();
 
+    // The application will start here. Until then, the selected hardware
+    // test runs (none by default).
     hw_test_run(display_ok);
 }

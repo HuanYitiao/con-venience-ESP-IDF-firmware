@@ -46,14 +46,15 @@ Configuration changes go in [sdkconfig.defaults](sdkconfig.defaults).
 
 ## Directory layout
 
-`middleware/` up to `st75256` exists. Everything else is planned.
+`main/`, `tests/` and `middleware/` exist; `application/` is planned.
 
 ```
 con-venience-ESP-IDF-firmware/
 ├── CMakeLists.txt
 ├── partitions.csv
 ├── sdkconfig.defaults
-├── main/                   # app_main (boot order) and hw_tests (one milestone test at a time)
+├── main/                   # app_main: boot order
+├── tests/hw_tests/         # milestone hardware tests, one at a time (HW_TEST)
 ├── middleware/             # must not depend on application
 │   ├── board/              # pin map, I2C/SPI bus handles
 │   ├── mcp23017/
@@ -63,9 +64,10 @@ con-venience-ESP-IDF-firmware/
 │   ├── st75256/            # display bus, init, backlight
 │   ├── sdcard/
 │   ├── max98357a/          # I2S amp, tones
-│   ├── ble_link/
-│   ├── acom/
-│   └── wifi_ap/
+│   ├── acom/               # contact link, BLE address exchange
+│   ├── ble_link/           # profile transfer over NimBLE
+│   ├── dns_server/         # copied from the IDF captive portal example
+│   └── wifi_ap/            # soft AP, captive portal, HTTP server
 └── application/
     ├── ui/                 # LVGL glue, theme, fonts, pages
     ├── contacts/           # JSON, contacts, packing
@@ -147,7 +149,7 @@ The PCF85063A remains the source of wall-clock time.
 - **Back-feeding through pins:** `gpio_reset_pin()` enables a pull-up, so using it to release the I2S and SD pins before power-off would back-feed the unpowered rail. Use `gpio_config` to set them as floating inputs. `sdspi_host.c` only enables pull-ups on CD, WP and INT, which are not used here; unmount leaves SD CS as a floating input. Shutdown current is not measured yet.
 - **Shutdown fallback path:** the end of `power_sleep`, which calls `esp_restart` with SLEEP_REQ still set if the MCU is still running, must stay as it is. Wake reason detection depends on it.
 - **`power_sleep` needs `button_init`:** the button pull-ups (IODIRB, GPPUB) are set only by `button_init`, and a fresh MCP after a battery insert has none. Without them the buttons float, so `power_sleep` cannot wait for a release and a button wake is unreliable. The button task keeps running during `power_sleep`, so events can still arrive while it shuts down.
-- **Testing sleep:** the USB-JTAG port disappears while the board is off, so a monitor does not follow it through a sleep and reflashing only works while it is awake (reinsert the battery or press a button first). To see what happened during a wake, log to NVS and read it on a later boot. The sleep test is `HW_TEST_SLEEP` in `main/hw_tests.h`.
+- **Testing sleep:** the USB-JTAG port disappears while the board is off, so a monitor does not follow it through a sleep and reflashing only works while it is awake (reinsert the battery or press a button first). To see what happened during a wake, log to NVS and read it on a later boot. The sleep test is `HW_TEST_SLEEP` in `tests/hw_tests/include/hw_tests.h`.
 
 ### Buses and peripherals
 
@@ -156,7 +158,7 @@ The PCF85063A remains the source of wall-clock time.
 - **Speaker:** the small speaker barely reproduces a few hundred Hz. A square wave is heard mostly through its harmonics, a sine at 262 Hz is almost silent; the same sine two octaves up is clearly audible. UI sounds use square waves, ideally with fundamentals of 1 to 4 kHz. `max98357a` also holds the tone generator (waveforms, notes); move that up to `application` once it exists and keep the driver to I2S, amp sequencing and PCM writes.
 - **Shared SPI:** the old code initializes SD before the display, while the LCD CS is not yet driven. `st75256_init` adds the display device, which drives its CS high, so it must run before the SD card is mounted. `power_periph_on` must come before `board_spi_init`: driving the bus into an unpowered SD card back-feeds it.
 - **Display transfers:** `st75256` uses the `esp_lcd` SPI panel IO (no panel driver; IDF has none for the ST75256). Each window goes out as one DMA transfer, and `st75256_write` blocks until it is done. LVGL's `flush_cb` will want an async variant.
-- **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), the rest are the old values. To retune, select `HW_TEST_DISPLAY_TUNE` in `main/hw_tests.h` and adjust with the buttons. The meaning of the `line_inv` bits and the frame rate command format are not checked against the datasheet.
+- **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), the rest are the old values. To retune, select `HW_TEST_DISPLAY_TUNE` in `tests/hw_tests/include/hw_tests.h` and adjust with the buttons. The meaning of the `line_inv` bits and the frame rate command format are not checked against the datasheet.
 - **ACOM single wire:** `uart_set_pin` supports the same pin for TX and RX. Call `gpio_od_enable` after configuring it. The header warns that open-drain should be applied ahead of time, or the two ends can drive against each other. Keep the echo filtering.
 - **Button INT:** the line is wire-ORed with the RTC. If an interrupt is not cleared, no further falling edge arrives, so `button` reads GPIOB every second while idle as a fallback. While a button is held or bouncing it polls every 10 ms instead of waiting for edges, so a release lost in a bounce is still seen. Events fire on release: LONG_PRESS after 300 ms, otherwise CLICK. A button already held at `button_init` (the wake press) gives no event.
 - **Watchdog:** the C6 is single-core. The main loop must block or call `vTaskDelay`, or the task watchdog fires.

@@ -4,7 +4,10 @@
 
 #include "button.h"
 
-// Hardware tests for the milestones, one at a time. Pick one with HW_TEST.
+// Hardware tests for the middleware milestones, one at a time, run by
+// app_main after the boot sequence. Pick one with HW_TEST below; keep it at
+// HW_TEST_NONE in commits. Each test lives in its own test_*.c, compiled
+// only when selected.
 #define HW_TEST_NONE 0
 // M2: shows the wake reason on the LED, then sleeps with a 30 s RTC wake.
 // The board is off most of the time, so reflashing needs a wake first.
@@ -26,7 +29,7 @@
 // BLE is started first, as in the real flow. PAIR long press: AP off/on.
 #define HW_TEST_WIFI 7
 
-#define HW_TEST HW_TEST_WIFI
+#define HW_TEST HW_TEST_NONE
 
 // Runs the selected test after the boot sequence. display_ok: the display
 // (and with it +3.3V_PERIPH and the SPI bus) is up.
