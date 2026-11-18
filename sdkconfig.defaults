@@ -19,3 +19,8 @@ CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517
 # CONFIG_BT_NIMBLE_SECURITY_ENABLE is not set
+
+# Wi-Fi portal (M10): the HTTP server keeps up to 13 sockets open (phones
+# open several at once), plus DNS and the server's own; as the IDF
+# captive_portal example.
+CONFIG_LWIP_MAX_SOCKETS=16
