@@ -46,7 +46,7 @@ Configuration changes go in [sdkconfig.defaults](sdkconfig.defaults).
 
 ## Directory layout
 
-`main/`, `tests/` and `middleware/` exist; `application/` is planned.
+`main/`, `tests/`, `tools/` and `middleware/` exist; in `application/`, `ui` and `contacts` have started.
 
 ```
 con-venience-ESP-IDF-firmware/
@@ -55,6 +55,7 @@ con-venience-ESP-IDF-firmware/
 ├── sdkconfig.defaults
 ├── main/                   # app_main: boot order
 ├── tests/hw_tests/         # milestone hardware tests, one at a time (HW_TEST)
+├── tools/                  # pcf2lvgl.py: bitmap fonts for LVGL
 ├── middleware/             # must not depend on application
 │   ├── board/              # pin map, I2C/SPI bus handles
 │   ├── mcp23017/
@@ -158,7 +159,7 @@ The PCF85063A remains the source of wall-clock time.
 - **Speaker:** the small speaker barely reproduces a few hundred Hz. A square wave is heard mostly through its harmonics, a sine at 262 Hz is almost silent; the same sine two octaves up is clearly audible. UI sounds use square waves, ideally with fundamentals of 1 to 4 kHz. `max98357a` also holds the tone generator (waveforms, notes); move that up to `application` once it exists and keep the driver to I2S, amp sequencing and PCM writes.
 - **Shared SPI:** the old code initializes SD before the display, while the LCD CS is not yet driven. `st75256_init` adds the display device, which drives its CS high, so it must run before the SD card is mounted. `power_periph_on` must come before `board_spi_init`: driving the bus into an unpowered SD card back-feeds it.
 - **Display transfers:** `st75256` uses the `esp_lcd` SPI panel IO (no panel driver; IDF has none for the ST75256). Each window goes out as one DMA transfer, and `st75256_write` blocks until it is done. LVGL's `flush_cb` will want an async variant.
-- **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), the rest are the old values. To retune, select `HW_TEST_DISPLAY_TUNE` in `tests/hw_tests/include/hw_tests.h` and adjust with the buttons. The meaning of the `line_inv` bits and the frame rate command format are not checked against the datasheet.
+- **Display tuning:** the panel is a passive-matrix STN, so dense content causes crosstalk along rows and columns; the old firmware shows the same. Vop is tuned to 318 (old: 313), and the gray levels to light 0x08, dark 0x0B. The old firmware's gray level command sent a 01..1F ramp; per the datasheet (9.2.31) only parameters 4-6 (light) and 9, 12-14 (dark) count and must be equal. The old firmware's display control byte 0x20, commented "N-line off" as in u8g2, is in fact LF = 16: inversion every 17 lines (datasheet 9.2.5); the driver now takes the line count (`n_line`). The rest are the old values. To retune, select `HW_TEST_DISPLAY_TUNE` in `tests/hw_tests/include/hw_tests.h` and adjust with the buttons; the log shows the frame rate in Hz.
 - **ACOM single wire:** `uart_set_pin` supports the same pin for TX and RX. Call `gpio_od_enable` after configuring it. The header warns that open-drain should be applied ahead of time, or the two ends can drive against each other. Keep the echo filtering.
 - **Button INT:** the line is wire-ORed with the RTC. If an interrupt is not cleared, no further falling edge arrives, so `button` reads GPIOB every second while idle as a fallback. While a button is held or bouncing it polls every 10 ms instead of waiting for edges, so a release lost in a bounce is still seen. Events fire on release: LONG_PRESS after 300 ms, otherwise CLICK. A button already held at `button_init` (the wake press) gives no event.
 - **Watchdog:** the C6 is single-core. The main loop must block or call `vTaskDelay`, or the task watchdog fires.
@@ -178,8 +179,11 @@ The PCF85063A remains the source of wall-clock time.
 - **Refresh areas:** the display has one page per 4 rows, so dirty areas must be aligned to 4 rows with `LV_EVENT_INVALIDATE_AREA`.
 - **Threading:** LVGL is not thread-safe. All calls stay in the app task.
 - **Responsibilities:** `fsm` owns page flow and business state. Focus movement in lists and menus uses LVGL's keypad and groups.
-- **Text:** pure black and white, no gray. Generate 1bpp bitmap fonts with `lv_font_conv --bpp 1` rather than using LVGL's built-in anti-aliased fonts. Gray is for avatars, backgrounds and decoration.
-- **Animation:** STN panels respond slowly, so sliding animations may ghost. Tune each animation's duration and path on the real screen. Avoid opacity fades, since there are only 4 gray levels.
+- **Crosstalk and gray:** the hardware grays sit on the steep part of the STN's response, so they take crosstalk worst: a large black area changes the gray in the same rows (seen as a band across gray swatches next to a black bar). UI text and widgets are black and white only. Gray is for avatars and decoration, kept out of rows with large black areas (including a focused item's black background). If avatars still suffer, compare them against monochrome mode (0xF0 0x10) with dithering, which the old avatar format already allows.
+- **Text:** pure black and white, no gray. The fonts are X11 misc-fixed bitmap fonts (public domain, the family the old firmware used through u8g2): 7x14 bold for names and menus, 6x12 for the rest. `tools/pcf2lvgl.py` turns the system's `.pcf.gz` files into 1bpp LVGL fonts in `application/ui/fonts/` (no Node.js needed; `lv_font_conv` only reads outline fonts). They cover Latin with Latin-1 and Extended-A, Greek and Cyrillic; no CJK for now. Gray is for avatars, backgrounds and decoration.
+- **Contact card:** laid out as the old design: avatar left, black name bar and light gray details right. The name bar shares rows with the avatar; with a real avatar the crosstalk is visible but mild, partly because avatars tend to be plain at the top. Long text ends in dots for now; scrolling must step, not glide.
+- **Animation:** the STN takes a few hundred ms to settle (measured: a jump leaves a ghost for just under 0.5 s). A smooth animation, redrawn every 33 ms, smears badly. Change the screen in jumps, at most a few steps, and avoid opacity fades, since there are only 4 gray levels.
+- **Focus:** the mono theme only draws a focus outline, which containers clip. Focusable widgets get an explicit style for `LV_STATE_FOCUSED`: black background, white text.
 - **Custom content:** convert avatars to L8 on load. Pre-generate the dithered battery bands as images or draw them on a canvas. Draw QR codes on a canvas.
 - **Memory:** measure with Wi-Fi and BLE both active.
 

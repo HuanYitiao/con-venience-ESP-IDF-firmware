@@ -5,6 +5,7 @@
 #include "board_i2c.h"
 #include "board_spi.h"
 #include "button.h"
+#include "contacts.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "hw_tests.h"
@@ -12,7 +13,9 @@
 #include "nvs_flash.h"
 #include "pcf85063a.h"
 #include "power.h"
+#include "sdcard.h"
 #include "st75256.h"
+#include "ui.h"
 
 static const char *TAG = "con-venience";
 
@@ -24,6 +27,7 @@ static void on_button(button_id_t id, button_action_t action)
     };
     ESP_LOGI(TAG, "Button %s %s", names[id], action == BUTTON_LONG_PRESS ? "long press" : "click");
     hw_test_on_button(id, action);
+    ui_on_button(id, action);
 }
 
 // Standard IDF init: a full or outdated NVS partition is erased and set up again.
@@ -132,6 +136,23 @@ static void power_start(void)
     }
 }
 
+// The SD card is optional: without it the UI shows made-up data.
+static void storage_start(void)
+{
+    if (!sdcard_present())
+    {
+        ESP_LOGW(TAG, "No SD card");
+        return;
+    }
+    esp_err_t err = sdcard_mount();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "SD mount failed: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "SD card mounted");
+}
+
 // Boot order matters; see README, "Boot order". No ESP_ERROR_CHECK on this
 // path: an I2C error must not turn into a reboot loop.
 void app_main(void)
@@ -157,7 +178,28 @@ void app_main(void)
 
     bool display_ok = display_start();
 
-    // The application will start here. Until then, the selected hardware
-    // test runs (none by default).
+#if HW_TEST != HW_TEST_NONE
     hw_test_run(display_ok);
+#else
+    // A1: our own contact card. The page flow (fsm) comes later.
+    if (display_ok)
+    {
+        storage_start();  // after the display: its CS must be high before SD traffic
+        err = ui_init();
+        if (err == ESP_OK)
+        {
+            static contact_t self;  // 4.8 KB, mostly the avatar
+            err = sdcard_is_mounted() ? contacts_load_self(&self) : ESP_ERR_INVALID_STATE;
+            if (err != ESP_OK)
+            {
+                ESP_LOGW(TAG, "No own profile (%s), showing made-up data",
+                         sdcard_is_mounted() ? esp_err_to_name(err) : "SD card not mounted");
+                contacts_fake(&self);
+            }
+            ui_show_contact_card(&self);
+            ui_run();
+        }
+        ESP_LOGE(TAG, "UI init failed: %s", esp_err_to_name(err));
+    }
+#endif
 }

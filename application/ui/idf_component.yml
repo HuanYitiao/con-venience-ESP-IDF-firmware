@@ -1,0 +1,4 @@
+## IDF Component Manager Manifest File
+dependencies:
+  # Pinned to the minor version: LVGL changes its API between minors.
+  lvgl/lvgl: "~9.6.0"
