@@ -1,0 +1,4 @@
+## IDF Component Manager Manifest File
+dependencies:
+  # IDF 6.x no longer bundles a JSON parser.
+  espressif/cjson: "^1.7.19"
