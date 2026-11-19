@@ -28,8 +28,10 @@ typedef struct
     uint16_t vop;         // 0x81, 0..511: contrast
     uint8_t  bias;        // 0x32 P3, 0..5: 1/14 .. 1/9
     uint8_t  booster;     // 0x32 P2, 0..3: booster efficiency
-    uint8_t  line_inv;    // 0xCA P3, raw: N-line inversion (low bits) and frame inversion
+    uint8_t  n_line;      // 0xCA P3: drive inverted every n lines, 2..32; 0 = per frame only
     uint8_t  frame_rate;  // 0xF0 (EXT1), 0..31; ST75256_FRAME_RATE_DEFAULT = not sent
+    uint8_t  gray_light;  // 0x20 (EXT1), 0..31 (0 lightest): drive level of light gray
+    uint8_t  gray_dark;   // 0x20 (EXT1), 0..31: drive level of dark gray
 } st75256_tuning_t;
 
 #define ST75256_FRAME_RATE_DEFAULT 0xFF

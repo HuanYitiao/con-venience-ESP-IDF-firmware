@@ -8,10 +8,13 @@
 #include "driver/ledc.h"
 #include "esp_lcd_io_spi.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mcp23017.h"
+
+static const char *TAG = "st75256";
 
 // Same bus settings as the old firmware.
 #define ST75256_PCLK_HZ (20 * 1000 * 1000)
@@ -57,11 +60,6 @@ static const init_cmd_t init_seq[] = {
     {0x94, 0, {0}},  // sleep out
     {CMD_EXT1, 0, {0}},
     {0xD7, 1, {0x9F}},  // auto read off
-    // Gray level set: the 16 steps the 4 gray levels are picked from.
-    {0x20,
-     16,
-     {0x01, 0x03, 0x05, 0x07, 0x09, 0x0B, 0x0D, 0x0F, 0x11, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1D,
-      0x1F}},
     {CMD_EXT0, 0, {0}},
     {CMD_PAGE_ADDR, 2, {0x00, ST75256_PAGES - 1}},
     {CMD_COLUMN_ADDR, 2, {0x00, ST75256_WIDTH - 1}},
@@ -74,6 +72,7 @@ static const init_cmd_t init_seq[] = {
 #define POWER_CONTROL_ALL_ON 0x0B
 
 #define CMD_ANALOG_SET 0x32     // EXT1
+#define CMD_GRAY_LEVEL 0x20     // EXT1 (EXT0 0x20 is power control)
 #define CMD_FRAME_RATE 0xF0     // EXT1 (EXT0 0xF0 is display mode)
 #define CMD_DISPLAY_CTRL 0xCA   // EXT0
 #define CMD_VOP 0x81            // EXT0
@@ -83,15 +82,24 @@ static const init_cmd_t init_seq[] = {
 #define BIAS_MAX 5
 #define BOOSTER_MAX 3
 #define FRAME_RATE_MAX 31
+#define GRAY_LEVEL_MAX 31
+#define N_LINE_MAX 32
 
 static st75256_tuning_t tuning = {
     // Tuned on the panel with M5_DISPLAY_TUNE (2026-11-11); the old firmware
     // had 313 (0x81 0x39 0x04). The others are the old values.
     .vop = 318,
-    .bias = 2,                  // 1/12
+    .bias = 2,  // 1/12
     .booster = 1,
-    .line_inv = 0x20,
+    // The old firmware sent 0x20 here, commented "N-line off" (as u8g2 does);
+    // per the datasheet (9.2.5) that is LF = 16: inversion every 17 lines.
+    .n_line = 17,
     .frame_rate = ST75256_FRAME_RATE_DEFAULT,
+    // Tuned on the panel with HW_TEST_DISPLAY_TUNE (2026-11-18) for four
+    // evenly spaced levels. The old firmware sent a 01..1F ramp, which gave
+    // each level several values where the datasheet wants one.
+    .gray_light = 0x08,
+    .gray_dark = 0x0B,  // 10
 };
 
 static esp_lcd_panel_io_handle_t io;
@@ -115,13 +123,25 @@ static esp_err_t cmd(uint8_t c, const uint8_t *data, size_t len)
 static esp_err_t apply_tuning(void)
 {
     const uint8_t analog[] = {0x00, tuning.booster, tuning.bias};
-    const uint8_t ctrl[] = {0x00, DISPLAY_CTRL_DUTY, tuning.line_inv};
+    // P3 = 0 0 LF4 FI LF3 LF2 LF1 LF0, lines = LF + 1 (datasheet 9.2.5).
+    // FI only matters when 128 is not a multiple of the lines; left at 0.
+    const uint8_t lf = tuning.n_line >= 2 ? tuning.n_line - 1 : 0;
+    const uint8_t ctrl[] = {0x00, DISPLAY_CTRL_DUTY, (uint8_t)((lf & 0x10) << 1 | (lf & 0x0F))};
     const uint8_t vop[] = {tuning.vop & 0x3F, (tuning.vop >> 6) & 0x07};
 
     esp_err_t err = cmd(CMD_EXT1, NULL, 0);
     if (err == ESP_OK)
     {
         err = cmd(CMD_ANALOG_SET, analog, sizeof(analog));
+    }
+    if (err == ESP_OK)
+    {
+        // Datasheet 9.2.31: parameters 4-6 are light gray, 9 and 12-14 dark
+        // gray, all others 0.
+        const uint8_t gl = tuning.gray_light;
+        const uint8_t gd = tuning.gray_dark;
+        const uint8_t gray[16] = {0, 0, 0, gl, gl, gl, 0, 0, gd, 0, 0, gd, gd, gd, 0, 0};
+        err = cmd(CMD_GRAY_LEVEL, gray, sizeof(gray));
     }
     if (err == ESP_OK && tuning.frame_rate != ST75256_FRAME_RATE_DEFAULT)
     {
@@ -168,6 +188,22 @@ esp_err_t st75256_set_tuning(const st75256_tuning_t *t)
     if (tuning.booster > BOOSTER_MAX)
     {
         tuning.booster = BOOSTER_MAX;
+    }
+    if (tuning.n_line > N_LINE_MAX)
+    {
+        tuning.n_line = N_LINE_MAX;
+    }
+    if (tuning.n_line == 1)
+    {
+        tuning.n_line = 0;
+    }
+    if (tuning.gray_light > GRAY_LEVEL_MAX)
+    {
+        tuning.gray_light = GRAY_LEVEL_MAX;
+    }
+    if (tuning.gray_dark > GRAY_LEVEL_MAX)
+    {
+        tuning.gray_dark = GRAY_LEVEL_MAX;
     }
     if (tuning.frame_rate != ST75256_FRAME_RATE_DEFAULT && tuning.frame_rate > FRAME_RATE_MAX)
     {
@@ -293,6 +329,8 @@ esp_err_t st75256_init(void)
     err = apply_tuning();
     if (err == ESP_OK)
     {
+        ESP_LOGI(TAG, "Vop %u, bias %u, n-line %u, gray light 0x%02X dark 0x%02X", tuning.vop,
+                 tuning.bias, tuning.n_line, tuning.gray_light, tuning.gray_dark);
         const uint8_t power = POWER_CONTROL_ALL_ON;
         err = cmd(CMD_POWER_CONTROL, &power, 1);
     }

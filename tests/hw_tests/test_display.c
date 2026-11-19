@@ -3,6 +3,7 @@
 
 #if HW_TEST == HW_TEST_DISPLAY_TUNE
 
+#include <stdint.h>
 #include <stdio.h>
 
 #include "esp_log.h"
@@ -71,16 +72,25 @@ typedef enum
     TUNE_VOP,
     TUNE_BIAS,
     TUNE_BOOSTER,
-    TUNE_LINE_INV,
+    TUNE_N_LINE,
     TUNE_FRAME_RATE,
+    TUNE_GRAY_LIGHT,
+    TUNE_GRAY_DARK,
     TUNE_COUNT,
 } tune_param_t;
 
-static const char *const tune_names[TUNE_COUNT] = {"vop", "bias", "booster", "line_inv",
-                                                   "frame_rate"};
+static const char *const tune_names[TUNE_COUNT] = {"vop",        "bias",       "booster",  "n_line",
+                                                   "frame_rate", "gray_light", "gray_dark"};
 // frame_rate -1 = not sent (chip default).
-static const int tune_min[TUNE_COUNT] = {0, 0, 0, 0, -1};
-static const int tune_max[TUNE_COUNT] = {511, 5, 3, 255, 31};
+// n_line: 0 (frame inversion only) or 2..32 lines; 1 is skipped.
+static const int tune_min[TUNE_COUNT] = {0, 0, 0, 0, -1, 0, 0};
+static const int tune_max[TUNE_COUNT] = {511, 5, 3, 32, 31, 31, 31};
+
+// Frame rate in tenths of Hz per FR code (datasheet 9.2.42); 0 = not listed.
+static const uint16_t frame_rate_dhz[32] = {
+    50,  100, 200, 345, 415, 460,  460,  490,  510,  530,  550,  550,  690,  730,  765,  765,
+    0,   0,   0,   0,   830, 920,  920,  980,  1020, 1060, 1100, 1100, 1380, 1460, 1530, 1530,
+};
 
 static int tune_get(const st75256_tuning_t *t, tune_param_t p)
 {
@@ -92,8 +102,12 @@ static int tune_get(const st75256_tuning_t *t, tune_param_t p)
             return t->bias;
         case TUNE_BOOSTER:
             return t->booster;
-        case TUNE_LINE_INV:
-            return t->line_inv;
+        case TUNE_N_LINE:
+            return t->n_line;
+        case TUNE_GRAY_LIGHT:
+            return t->gray_light;
+        case TUNE_GRAY_DARK:
+            return t->gray_dark;
         case TUNE_FRAME_RATE:
         default:
             return t->frame_rate == ST75256_FRAME_RATE_DEFAULT ? -1 : t->frame_rate;
@@ -121,8 +135,18 @@ static void tune_set(st75256_tuning_t *t, tune_param_t p, int v)
         case TUNE_BOOSTER:
             t->booster = v;
             break;
-        case TUNE_LINE_INV:
-            t->line_inv = v;
+        case TUNE_N_LINE:
+            if (v == 1)
+            {
+                v = t->n_line == 0 ? 2 : 0;  // 1 line is not a setting
+            }
+            t->n_line = v;
+            break;
+        case TUNE_GRAY_LIGHT:
+            t->gray_light = v;
+            break;
+        case TUNE_GRAY_DARK:
+            t->gray_dark = v;
             break;
         case TUNE_FRAME_RATE:
         default:
@@ -139,16 +163,20 @@ static void frame_rate_str(const st75256_tuning_t *t, char *buf, size_t len, con
     }
     else
     {
-        snprintf(buf, len, "%u", t->frame_rate);
+        uint16_t dhz = frame_rate_dhz[t->frame_rate & 0x1F];
+        snprintf(buf, len, "0x%02X (%u.%u Hz)", t->frame_rate, dhz / 10, dhz % 10);
     }
 }
 
 static void tune_log(const st75256_tuning_t *t, tune_param_t sel)
 {
-    char fr[12];
+    char fr[24];
     frame_rate_str(t, fr, sizeof(fr), "default");
-    ESP_LOGI(TAG, "vop=%u bias=%u booster=%u line_inv=0x%02X frame_rate=%s  [editing %s]", t->vop,
-             t->bias, t->booster, t->line_inv, fr, tune_names[sel]);
+    ESP_LOGI(TAG,
+             "vop=%u bias=%u booster=%u n_line=%u frame_rate=%s gray=0x%02X/0x%02X  "
+             "[editing %s]",
+             t->vop, t->bias, t->booster, t->n_line, fr, t->gray_light, t->gray_dark,
+             tune_names[sel]);
 }
 
 // LEFT/RIGHT pick a setting, UP/DOWN change it (long press: by 10), PAIR
@@ -209,10 +237,18 @@ void test_display_run(void)
                 else
                 {
                     char fr[32];
-                    frame_rate_str(&t, fr, sizeof(fr), "ST75256_FRAME_RATE_DEFAULT");
-                    ESP_LOGI(TAG, "C: {.vop = %u, .bias = %u, .booster = %u, .line_inv = 0x%02X, "
-                                  ".frame_rate = %s}",
-                             t.vop, t.bias, t.booster, t.line_inv, fr);
+                    if (t.frame_rate == ST75256_FRAME_RATE_DEFAULT)
+                    {
+                        snprintf(fr, sizeof(fr), "ST75256_FRAME_RATE_DEFAULT");
+                    }
+                    else
+                    {
+                        snprintf(fr, sizeof(fr), "0x%02X", t.frame_rate);
+                    }
+                    ESP_LOGI(TAG,
+                             "C: {.vop = %u, .bias = %u, .booster = %u, .n_line = %u, "
+                             ".frame_rate = %s, .gray_light = 0x%02X, .gray_dark = 0x%02X}",
+                             t.vop, t.bias, t.booster, t.n_line, fr, t.gray_light, t.gray_dark);
                 }
                 break;
         }
