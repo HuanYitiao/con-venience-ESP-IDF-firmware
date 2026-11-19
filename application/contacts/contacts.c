@@ -1,6 +1,7 @@
 #include "contacts.h"
 
 #include <ctype.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -10,8 +11,9 @@
 
 static const char *TAG = "contacts";
 
-#define SELF_JSON SDCARD_MOUNT_POINT "/self_profile/profile.json"
-#define SELF_AVATAR SDCARD_MOUNT_POINT "/self_profile/avatar.bin"
+#define SELF_DIR SDCARD_MOUNT_POINT "/self_profile"
+#define FRIENDS_DIR SDCARD_MOUNT_POINT "/friends_profiles"
+#define PATH_LEN 96
 // Larger than any real profile (about 200 bytes); a bound for a hostile file.
 #define PROFILE_JSON_MAX 2048
 
@@ -115,11 +117,14 @@ static bool load_avatar(const char *path, uint8_t *buf, size_t len)
     return n == len;
 }
 
-esp_err_t contacts_load_self(contact_t *out)
+// profile.json and avatar.bin from one profile directory.
+static esp_err_t load_profile(const char *dir, contact_t *out)
 {
     memset(out, 0, sizeof(*out));
 
-    FILE *f = fopen(SELF_JSON, "r");
+    char path[PATH_LEN];
+    snprintf(path, sizeof(path), "%s/profile.json", dir);
+    FILE *f = fopen(path, "r");
     if (!f)
     {
         return ESP_ERR_NOT_FOUND;
@@ -132,18 +137,123 @@ esp_err_t contacts_load_self(contact_t *out)
     esp_err_t err = parse_profile(json, out);
     if (err != ESP_OK)
     {
-        ESP_LOGW(TAG, "Self profile does not parse");
+        ESP_LOGW(TAG, "%s: profile does not parse", dir);
         return err;
     }
 
     size_t avatar_len = (size_t)out->avatar_res * out->avatar_res / 4;
-    if (avatar_len && !load_avatar(SELF_AVATAR, out->avatar, avatar_len))
+    snprintf(path, sizeof(path), "%s/avatar.bin", dir);
+    if (avatar_len && !load_avatar(path, out->avatar, avatar_len))
     {
-        ESP_LOGW(TAG, "Self avatar missing or short, need %u bytes", (unsigned)avatar_len);
+        ESP_LOGW(TAG, "%s: avatar missing or short, need %u bytes", dir, (unsigned)avatar_len);
         out->avatar_res = 0;
     }
-    ESP_LOGI(TAG, "Self: %s, %u links, avatar %u px", out->name, out->link_count, out->avatar_res);
     return ESP_OK;
+}
+
+esp_err_t contacts_load_self(contact_t *out)
+{
+    esp_err_t err = load_profile(SELF_DIR, out);
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Self: %s, %u links, avatar %u px", out->name, out->link_count,
+                 out->avatar_res);
+    }
+    return err;
+}
+
+// ── Friends ──────────────────────────────────────────────
+// One directory per friend, named after the uuid. The list keeps the uuid
+// and name of each, in directory order (as the old firmware), and loads the
+// rest on demand.
+
+static char friend_uuids[CONTACTS_FRIENDS_MAX][CONTACT_UUID_LEN];
+static char friend_names[CONTACTS_FRIENDS_MAX][CONTACT_NAME_LEN];
+static int  friend_count;
+static bool friends_fake;
+
+int contacts_list_friends(void)
+{
+    friend_count = 0;
+    friends_fake = false;
+    DIR *dir = opendir(FRIENDS_DIR);
+    if (!dir)
+    {
+        return 0;
+    }
+    static contact_t c;  // 4.8 KB: not on the stack
+    struct dirent   *e;
+    while (friend_count < CONTACTS_FRIENDS_MAX && (e = readdir(dir)) != NULL)
+    {
+        if (e->d_type != DT_DIR || !valid_uuid(e->d_name))
+        {
+            continue;
+        }
+        // valid_uuid() checked the length; the copy makes it visible to the compiler.
+        char uuid[CONTACT_UUID_LEN];
+        copy_utf8(uuid, sizeof(uuid), e->d_name);
+        char path[PATH_LEN];
+        snprintf(path, sizeof(path), "%s/%s", FRIENDS_DIR, uuid);
+        if (load_profile(path, &c) != ESP_OK)
+        {
+            continue;
+        }
+        copy_utf8(friend_uuids[friend_count], CONTACT_UUID_LEN, uuid);
+        copy_utf8(friend_names[friend_count], CONTACT_NAME_LEN, c.name);
+        friend_count++;
+    }
+    closedir(dir);
+    ESP_LOGI(TAG, "%d friends", friend_count);
+    return friend_count;
+}
+
+const char *contacts_friend_name(int index)
+{
+    return index >= 0 && index < friend_count ? friend_names[index] : "";
+}
+
+esp_err_t contacts_load_friend(int index, contact_t *out)
+{
+    if (index < 0 || index >= friend_count)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (friends_fake)
+    {
+        contacts_fake(out);
+        copy_utf8(out->name, sizeof(out->name), friend_names[index]);
+        // A different avatar per friend: shift the bands, every third has none.
+        for (size_t i = 0; i < CONTACT_AVATAR_LEN_MAX; i++)
+        {
+            out->avatar[i] = (uint8_t)(((out->avatar[i] & 3) + index) & 3) * 0x55;
+        }
+        if (index % 3 == 2)
+        {
+            out->avatar_res = 0;
+        }
+        return ESP_OK;
+    }
+    char path[PATH_LEN];
+    snprintf(path, sizeof(path), "%s/%s", FRIENDS_DIR, friend_uuids[index]);
+    return load_profile(path, out);
+}
+
+int contacts_fake_friends(int count)
+{
+    static const char *const names[] = {
+        "Aurora",  "Björn",   "Chiyo",    "Dmitri", "Élodie", "Finn",     "Günther", "Hana",
+        "Ingrid",  "Jørgen",  "Kasimir",  "Lumi",   "Mårten", "Nadežda", "Oskar",   "Paweł",
+        "Quentin", "Ráðhild", "Søren",    "Tomás",
+    };
+    const int n = (int)(sizeof(names) / sizeof(names[0]));
+    friend_count = count < n ? count : n;
+    friends_fake = true;
+    for (int i = 0; i < friend_count; i++)
+    {
+        snprintf(friend_uuids[i], CONTACT_UUID_LEN, "%016X", i);
+        copy_utf8(friend_names[i], CONTACT_NAME_LEN, names[i]);
+    }
+    return friend_count;
 }
 
 void contacts_fake(contact_t *out)

@@ -46,5 +46,22 @@ typedef struct
 // short avatar.bin only leaves avatar_res at 0.
 esp_err_t contacts_load_self(contact_t *out);
 
+// Friends, in /friends_profiles/<uuid>/ (old firmware layout).
+#define CONTACTS_FRIENDS_MAX 64  // as the old firmware
+
+// Scans the friends' directories and keeps each uuid and name. Needs the SD
+// card mounted. Returns the number of friends.
+int contacts_list_friends(void);
+
+// From the last list; "" out of range.
+const char *contacts_friend_name(int index);
+
+// Loads friend index of the last list.
+esp_err_t contacts_load_friend(int index, contact_t *out);
+
 // A made-up contact for UI work without an SD card.
 void contacts_fake(contact_t *out);
+
+// Replaces the list with up to count made-up friends (accented names,
+// varied avatars, some without). Returns the number.
+int contacts_fake_friends(int count);
