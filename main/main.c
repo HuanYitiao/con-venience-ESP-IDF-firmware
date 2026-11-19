@@ -45,6 +45,9 @@ static esp_err_t nvs_init(void)
     return err;
 }
 
+// The boot reading for the menu; 0 without one (on USB, or a failed read).
+static uint16_t boot_battery_mv;
+
 // One VBAT reading per boot feeds the gauge. Needs NVS.
 static void battery_start(void)
 {
@@ -77,6 +80,7 @@ static void battery_start(void)
         return;
     }
     battery_level_update(mv);
+    boot_battery_mv = mv;
     ESP_LOGI(TAG, "VBAT %u mV, level %u/%u", mv, battery_level(), BATTERY_LEVELS);
 }
 
@@ -181,8 +185,8 @@ void app_main(void)
 #if HW_TEST != HW_TEST_NONE
     hw_test_run(display_ok);
 #else
-    // A1: home, contact card and friend list, PAIR long press to switch.
-    // The page flow (fsm) comes later.
+    // A1: every page with made-up data where needed, walked by a stand-in
+    // for the page flow (fsm), which comes later.
     if (display_ok)
     {
         storage_start();  // after the display: its CS must be high before SD traffic
@@ -214,6 +218,7 @@ void app_main(void)
             demo = (ui_demo_t){
                 .self = &self,
                 .battery_level = battery_level(),
+                .battery_mv = boot_battery_mv,
                 .friend_names = names,
                 .friend_count = count,
                 .load_friend = contacts_load_friend,

@@ -19,18 +19,27 @@ static const char *TAG = "ui";
 #define UI_BUF_ROWS 32
 // lv_timer_handler() is called at least this often.
 #define UI_MAX_SLEEP_MS 50
-#define UI_KEY_QUEUE_LEN 8
+#define UI_BUTTON_QUEUE_LEN 8
+#define UI_LV_KEYS_LEN 8
 
 lv_style_t ui_style_focus;
 
 static lv_display_t *display;
-
-// Page cycling until the fsm exists.
-static const ui_demo_t *demo;
-static volatile bool    demo_next;
-static int              demo_page;
 static lv_indev_t   *keypad;
-static QueueHandle_t key_queue;
+
+typedef struct
+{
+    button_id_t     id;
+    button_action_t action;
+} button_event_t;
+
+// Button events from the button task, handled in ui_run().
+static QueueHandle_t button_queue;
+// The current page's key handler, or NULL for LVGL focus. LVGL task only.
+static ui_key_handler_t key_handler;
+// Keys for the LVGL keypad, LVGL task only.
+static uint32_t lv_keys[UI_LV_KEYS_LEN];
+static size_t   lv_keys_head, lv_keys_count;
 
 static uint8_t render_buf[ST75256_WIDTH * UI_BUF_ROWS] __attribute__((aligned(4)));
 static uint8_t panel_buf[ST75256_WIDTH * UI_BUF_ROWS / ST75256_PAGE_HEIGHT];
@@ -79,7 +88,28 @@ static void flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
     lv_display_flush_ready(disp);
 }
 
-// Keypad: one queued key is reported as pressed, then released on the next read.
+static bool lv_key_pop(uint32_t *key)
+{
+    if (lv_keys_count == 0)
+    {
+        return false;
+    }
+    *key = lv_keys[lv_keys_head];
+    lv_keys_head = (lv_keys_head + 1) % UI_LV_KEYS_LEN;
+    lv_keys_count--;
+    return true;
+}
+
+static void lv_key_push(uint32_t key)
+{
+    if (lv_keys_count < UI_LV_KEYS_LEN)
+    {
+        lv_keys[(lv_keys_head + lv_keys_count) % UI_LV_KEYS_LEN] = key;
+        lv_keys_count++;
+    }
+}
+
+// Keypad: one key is reported as pressed, then released on the next read.
 static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
 {
     static uint32_t last_key;
@@ -93,7 +123,7 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
         return;
     }
     uint32_t key;
-    if (xQueueReceive(key_queue, &key, 0) == pdTRUE)
+    if (lv_key_pop(&key))
     {
         last_key = key;
         data->key = key;
@@ -105,41 +135,74 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
     data->state = LV_INDEV_STATE_RELEASED;
 }
 
-// UP/DOWN move the focus, LEFT/RIGHT go to the focused widget, PAIR is
-// enter, PAIR long press is escape. Other long presses act as clicks for
-// now; the page flow (fsm) will give them their own meaning.
-void ui_on_button(button_id_t id, button_action_t action)
+// As the old firmware: UP/DOWN move, RIGHT enters, LEFT goes back. PAIR
+// acts as enter for now, its long press as back; the page flow (fsm) will
+// give PAIR its own meaning (pairing).
+static uint32_t to_lv_key(button_id_t id, button_action_t action)
 {
-    if (!key_queue)
-    {
-        return;
-    }
-    if (id == BUTTON_PAIR && action == BUTTON_LONG_PRESS && demo)
-    {
-        demo_next = true;  // handled in ui_run(), the LVGL task
-        return;
-    }
-    uint32_t key;
     switch (id)
     {
         case BUTTON_UP:
-            key = LV_KEY_PREV;
-            break;
+            return LV_KEY_PREV;
         case BUTTON_DOWN:
-            key = LV_KEY_NEXT;
-            break;
+            return LV_KEY_NEXT;
         case BUTTON_LEFT:
-            key = LV_KEY_LEFT;
-            break;
+            return LV_KEY_ESC;
         case BUTTON_RIGHT:
-            key = LV_KEY_RIGHT;
-            break;
+            return LV_KEY_ENTER;
         case BUTTON_PAIR:
         default:
-            key = action == BUTTON_LONG_PRESS ? LV_KEY_ESC : LV_KEY_ENTER;
-            break;
+            return action == BUTTON_LONG_PRESS ? LV_KEY_ESC : LV_KEY_ENTER;
     }
-    xQueueSend(key_queue, &key, 0);
+}
+
+void ui_on_button(button_id_t id, button_action_t action)
+{
+    if (!button_queue)
+    {
+        return;
+    }
+    const button_event_t ev = {.id = id, .action = action};
+    xQueueSend(button_queue, &ev, 0);
+}
+
+void ui_set_key_handler(ui_key_handler_t handler)
+{
+    key_handler = handler;
+}
+
+// In the LVGL task: to the page's handler, or to LVGL's focus.
+static void dispatch_buttons(void)
+{
+    button_event_t ev;
+    while (xQueueReceive(button_queue, &ev, 0) == pdTRUE)
+    {
+        if (key_handler)
+        {
+            key_handler(ev.id, ev.action);
+        }
+        else
+        {
+            lv_key_push(to_lv_key(ev.id, ev.action));
+        }
+    }
+}
+
+lv_obj_t *ui_screen_create(void)
+{
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_remove_style_all(scr);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(scr, UI_GRAY(UI_L8_WHITE), 0);
+    return scr;
+}
+
+void ui_screen_show(lv_obj_t *scr)
+{
+    key_handler = NULL;
+    lv_keys_count = 0;  // keys meant for the old page
+    // No transition: STN smears anything that moves.
+    lv_screen_load_anim(scr, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, true);
 }
 
 esp_err_t ui_init(void)
@@ -148,8 +211,8 @@ esp_err_t ui_init(void)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    key_queue = xQueueCreate(UI_KEY_QUEUE_LEN, sizeof(uint32_t));
-    if (!key_queue)
+    button_queue = xQueueCreate(UI_BUTTON_QUEUE_LEN, sizeof(button_event_t));
+    if (!button_queue)
     {
         return ESP_ERR_NO_MEM;
     }
@@ -168,7 +231,6 @@ esp_err_t ui_init(void)
     lv_display_set_flush_cb(display, flush);
     lv_display_add_event_cb(display, round_to_pages, LV_EVENT_INVALIDATE_AREA, NULL);
 
-    // Black and white widgets; focus is shown by inverting.
     // Black and white widgets with the 6x12 bitmap font.
     lv_display_set_theme(display, lv_theme_mono_init(display, false, UI_FONT_SMALL));
 
@@ -186,40 +248,12 @@ esp_err_t ui_init(void)
     return ESP_OK;
 }
 
-static void demo_show(void)
-{
-    switch (demo_page)
-    {
-        case 0:
-            ui_show_home(demo->self, demo->battery_level);
-            break;
-        case 1:
-            ui_show_contact_card(demo->self);
-            break;
-        default:
-            ui_show_friend_list(demo->friend_names, demo->friend_count, demo->load_friend);
-            break;
-    }
-}
-
-void ui_demo_start(const ui_demo_t *d)
-{
-    demo = d;
-    demo_page = 0;
-    demo_show();
-}
-
 void ui_run(void)
 {
     ESP_LOGI(TAG, "Running");
     while (true)
     {
-        if (demo_next)
-        {
-            demo_next = false;
-            demo_page = (demo_page + 1) % 3;
-            demo_show();
-        }
+        dispatch_buttons();
         uint32_t ms = lv_timer_handler();
         if (ms > UI_MAX_SLEEP_MS)
         {

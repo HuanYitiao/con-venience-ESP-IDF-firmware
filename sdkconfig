@@ -5105,8 +5105,7 @@ CONFIG_LV_USE_LIST=y
 CONFIG_LV_USE_MENU=y
 # default:
 CONFIG_LV_USE_MSGBOX=y
-# default:
-# CONFIG_LV_USE_QRCODE is not set
+CONFIG_LV_USE_QRCODE=y
 # default:
 # CONFIG_LV_USE_RLOTTIE is not set
 # default:

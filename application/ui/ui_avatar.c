@@ -41,18 +41,3 @@ const lv_image_dsc_t *ui_avatar_image(const contact_t *c, bool rotate180)
     avatar_img.data = avatar_l8;
     return &avatar_img;
 }
-
-lv_obj_t *ui_screen_create(void)
-{
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_remove_style_all(scr);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(scr, UI_GRAY(UI_L8_WHITE), 0);
-    return scr;
-}
-
-void ui_screen_show(lv_obj_t *scr)
-{
-    // No transition: STN smears anything that moves.
-    lv_screen_load_anim(scr, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, true);
-}

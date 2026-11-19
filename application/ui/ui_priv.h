@@ -9,9 +9,11 @@
 // menus, 6x12 for everything else.
 LV_FONT_DECLARE(ui_font_7x14b);
 LV_FONT_DECLARE(ui_font_6x12);
+LV_FONT_DECLARE(ui_font_12x24);
 
 #define UI_FONT_LARGE (&ui_font_7x14b)
 #define UI_FONT_SMALL (&ui_font_6x12)
+#define UI_FONT_CLOCK (&ui_font_12x24)  // ASCII only
 
 // The four levels the panel shows, as L8. LVGL colours are mapped to the
 // nearest of them in the flush callback.

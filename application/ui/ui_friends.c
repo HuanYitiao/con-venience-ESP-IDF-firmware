@@ -14,7 +14,8 @@ static const char *TAG = "ui";
 #define ROW_H 16  // 7x14 bold plus a pixel above and below
 
 static ui_friend_loader_t loader;
-static lv_obj_t          *avatar_area;
+static void (*back_cb)(void);
+static lv_obj_t *avatar_area;
 
 // The focused row is marked with "»" in front of the name. Inverting the
 // row (as menus do) puts a solid black bar in the same rows as the avatar's
@@ -28,6 +29,23 @@ static void set_marker(lv_obj_t *row, bool on)
 static void on_defocus(lv_event_t *e)
 {
     set_marker(lv_event_get_target(e), false);
+}
+
+static void on_key(lv_event_t *e)
+{
+    if (lv_event_get_key(e) == LV_KEY_ESC && back_cb)
+    {
+        back_cb();
+    }
+}
+
+// An empty list has nothing to focus: LEFT comes through the key handler.
+static void empty_keys(button_id_t id, button_action_t action)
+{
+    if (id == BUTTON_LEFT && back_cb)
+    {
+        back_cb();
+    }
 }
 
 // The focused friend's avatar, or "No avatar".
@@ -67,10 +85,12 @@ static void on_focus(lv_event_t *e)
     show_avatar((int)(intptr_t)lv_event_get_user_data(e));
 }
 
-void ui_show_friend_list(const char *const *names, int count, ui_friend_loader_t load)
+void ui_show_friend_list(const char *const *names, int count, ui_friend_loader_t load,
+                         void (*on_back)(void))
 {
     lv_obj_t *scr = ui_screen_create();
     loader = load;
+    back_cb = on_back;
 
     if (count <= 0)
     {
@@ -79,6 +99,7 @@ void ui_show_friend_list(const char *const *names, int count, ui_friend_loader_t
         lv_label_set_text(label, "No friends yet");
         lv_obj_align(label, LV_ALIGN_CENTER, HALF / 2, 0);
         ui_screen_show(scr);
+        ui_set_key_handler(empty_keys);
         return;
     }
 
@@ -102,6 +123,7 @@ void ui_show_friend_list(const char *const *names, int count, ui_friend_loader_t
         lv_obj_set_size(row, HALF, ROW_H);
         lv_obj_add_event_cb(row, on_focus, LV_EVENT_FOCUSED, (void *)(intptr_t)i);
         lv_obj_add_event_cb(row, on_defocus, LV_EVENT_DEFOCUSED, NULL);
+        lv_obj_add_event_cb(row, on_key, LV_EVENT_KEY, NULL);
 
         lv_obj_t *marker = lv_label_create(row);  // child 0
         lv_obj_set_style_text_font(marker, UI_FONT_LARGE, 0);
