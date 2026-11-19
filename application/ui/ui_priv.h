@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdbool.h>
+
+#include "contacts.h"
 #include "lvgl.h"
 
 // misc-fixed bitmap fonts, black and white only: 7x14 bold for names and
@@ -22,3 +25,11 @@ LV_FONT_DECLARE(ui_font_6x12);
 // Focused widgets: black background, white text (the mono theme's outline
 // gets clipped by containers).
 extern lv_style_t ui_style_focus;
+
+// The avatar as an image, in a buffer shared by all pages; NULL without one.
+// rotate180: for the home page, which faces the person in front.
+const lv_image_dsc_t *ui_avatar_image(const contact_t *c, bool rotate180);
+
+// A blank white screen, and showing one (the old screen is deleted).
+lv_obj_t *ui_screen_create(void);
+void      ui_screen_show(lv_obj_t *scr);

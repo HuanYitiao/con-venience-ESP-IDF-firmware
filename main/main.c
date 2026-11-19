@@ -181,7 +181,8 @@ void app_main(void)
 #if HW_TEST != HW_TEST_NONE
     hw_test_run(display_ok);
 #else
-    // A1: our own contact card. The page flow (fsm) comes later.
+    // A1: home, contact card and friend list, PAIR long press to switch.
+    // The page flow (fsm) comes later.
     if (display_ok)
     {
         storage_start();  // after the display: its CS must be high before SD traffic
@@ -196,7 +197,28 @@ void app_main(void)
                          sdcard_is_mounted() ? esp_err_to_name(err) : "SD card not mounted");
                 contacts_fake(&self);
             }
-            ui_show_contact_card(&self);
+
+            // Made-up friends when the card has none, so the list has something to show.
+            int count = sdcard_is_mounted() ? contacts_list_friends() : 0;
+            if (count == 0)
+            {
+                count = contacts_fake_friends(12);
+            }
+            static const char *names[CONTACTS_FRIENDS_MAX];
+            for (int i = 0; i < count; i++)
+            {
+                names[i] = contacts_friend_name(i);
+            }
+
+            static ui_demo_t demo;
+            demo = (ui_demo_t){
+                .self = &self,
+                .battery_level = battery_level(),
+                .friend_names = names,
+                .friend_count = count,
+                .load_friend = contacts_load_friend,
+            };
+            ui_demo_start(&demo);
             ui_run();
         }
         ESP_LOGE(TAG, "UI init failed: %s", esp_err_to_name(err));

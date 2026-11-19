@@ -24,6 +24,11 @@ static const char *TAG = "ui";
 lv_style_t ui_style_focus;
 
 static lv_display_t *display;
+
+// Page cycling until the fsm exists.
+static const ui_demo_t *demo;
+static volatile bool    demo_next;
+static int              demo_page;
 static lv_indev_t   *keypad;
 static QueueHandle_t key_queue;
 
@@ -109,6 +114,11 @@ void ui_on_button(button_id_t id, button_action_t action)
     {
         return;
     }
+    if (id == BUTTON_PAIR && action == BUTTON_LONG_PRESS && demo)
+    {
+        demo_next = true;  // handled in ui_run(), the LVGL task
+        return;
+    }
     uint32_t key;
     switch (id)
     {
@@ -176,11 +186,40 @@ esp_err_t ui_init(void)
     return ESP_OK;
 }
 
+static void demo_show(void)
+{
+    switch (demo_page)
+    {
+        case 0:
+            ui_show_home(demo->self, demo->battery_level);
+            break;
+        case 1:
+            ui_show_contact_card(demo->self);
+            break;
+        default:
+            ui_show_friend_list(demo->friend_names, demo->friend_count, demo->load_friend);
+            break;
+    }
+}
+
+void ui_demo_start(const ui_demo_t *d)
+{
+    demo = d;
+    demo_page = 0;
+    demo_show();
+}
+
 void ui_run(void)
 {
     ESP_LOGI(TAG, "Running");
     while (true)
     {
+        if (demo_next)
+        {
+            demo_next = false;
+            demo_page = (demo_page + 1) % 3;
+            demo_show();
+        }
         uint32_t ms = lv_timer_handler();
         if (ms > UI_MAX_SLEEP_MS)
         {
