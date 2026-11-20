@@ -28,6 +28,10 @@
 // M10: soft AP with captive portal and a test page with a file upload.
 // BLE is started first, as in the real flow. PAIR long press: AP off/on.
 #define HW_TEST_WIFI 7
+// A2: contacts on the card: all friends read back, own uuid and packing,
+// then save, replace, interrupted save, bad packages, delete and archive on
+// a test friend. Leaves the card as it was.
+#define HW_TEST_CONTACTS 8
 
 #define HW_TEST HW_TEST_NONE
 

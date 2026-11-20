@@ -19,6 +19,8 @@ void hw_test_run(bool display_ok)
     test_ble_run();
 #elif HW_TEST == HW_TEST_WIFI
     test_wifi_run();
+#elif HW_TEST == HW_TEST_CONTACTS
+    test_contacts_run();
 #endif
     (void)display_ok;
 }

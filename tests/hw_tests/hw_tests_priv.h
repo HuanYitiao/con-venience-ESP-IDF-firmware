@@ -15,3 +15,4 @@ void test_acom_run(void);
 void test_ble_run(void);
 void test_wifi_run(void);
 void test_wifi_on_button(button_id_t id, button_action_t action);
+void test_contacts_run(void);
