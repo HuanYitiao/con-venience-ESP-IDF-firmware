@@ -8,8 +8,8 @@
 #include "sdcard.h"
 
 #define SELF_DIR SDCARD_MOUNT_POINT "/self_profile"
-#define SELF_JSON SELF_DIR "/profile.json"
-#define SELF_AVATAR SELF_DIR "/avatar.bin"
+#define SELF_JSON CONTACTS_SELF_JSON
+#define SELF_AVATAR CONTACTS_SELF_AVATAR
 #define FRIENDS_DIR SDCARD_MOUNT_POINT "/friends_profiles"
 #define FRIENDS_DELETED_DIR SDCARD_MOUNT_POINT "/friends_deleted"
 #define PATH_LEN 128

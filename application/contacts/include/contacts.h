@@ -12,7 +12,9 @@
 //   /friends_deleted/<uuid>[_N]/                   deleted friends
 //   /self_profile_N/, /friends_profiles_N/          archived profiles
 // Every write survives a reset at any point; see contacts_store.c.
-// All calls need the SD card mounted and come from one task.
+// All calls need the SD card mounted, and come from one task at a time:
+// they share buffers. (The portal saves from the HTTP task while the UI sits
+// on the Wi-Fi page, which makes no contacts calls.)
 // Field sizes as in the old firmware (bytes, including the terminator; text
 // is UTF-8 and is cut on a character boundary).
 
@@ -46,6 +48,10 @@ typedef struct
     uint8_t        avatar[CONTACT_AVATAR_LEN_MAX];
 } contact_t;
 
+// The own profile's files, for serving them as they are.
+#define CONTACTS_SELF_JSON "/sdcard/self_profile/profile.json"
+#define CONTACTS_SELF_AVATAR "/sdcard/self_profile/avatar.bin"
+
 // Our own profile. ESP_ERR_NOT_FOUND without a
 // profile.json, ESP_ERR_INVALID_RESPONSE if it does not parse. A missing or
 // short avatar.bin only leaves avatar_res at 0.
@@ -56,6 +62,14 @@ esp_err_t contacts_load_self(contact_t *out);
 // in the file, else a new random one. Rewrites the file only on a change.
 // out (may be NULL) gets the uuid. ESP_ERR_NOT_FOUND without a profile.json.
 esp_err_t contacts_ensure_self_uuid(const char *prefer, char out[CONTACT_UUID_LEN]);
+
+// A new own profile from the portal: profile.json text and avatar.bin as
+// the page made them. Checked first (it parses, has a name, the avatar
+// fits avatar_res); ESP_ERR_INVALID_ARG if not, and nothing is written.
+// Keeps the uuid already on the card, as the old firmware, else the one in
+// json, else a new one; out (may be NULL) gets it.
+esp_err_t contacts_save_self(const char *json, size_t json_len, const uint8_t *avatar,
+                             size_t avatar_len, char out[CONTACT_UUID_LEN]);
 
 // Friends, in /friends_profiles/<uuid>/ (old firmware layout).
 #define CONTACTS_FRIENDS_MAX 64  // as the old firmware

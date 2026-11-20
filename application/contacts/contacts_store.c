@@ -440,3 +440,92 @@ esp_err_t contacts_ensure_self_uuid(const char *prefer, char out[CONTACT_UUID_LE
     }
     return err;
 }
+
+// ── Own profile from the portal ──────────────────────────
+
+esp_err_t contacts_save_self(const char *json, size_t json_len, const uint8_t *avatar,
+                             size_t avatar_len, char out[CONTACT_UUID_LEN])
+{
+    if (out)
+    {
+        out[0] = '\0';
+    }
+    if (json_len == 0 || json_len > PROFILE_JSON_MAX)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    static char text[PROFILE_JSON_MAX + 1];
+    memcpy(text, json, json_len);
+    text[json_len] = '\0';
+
+    static contact_t c;  // 4.8 KB: not on the stack
+    memset(&c, 0, sizeof(c));
+    if (contacts_parse_profile(text, &c) != ESP_OK || !c.name[0] || !c.avatar_res
+        || avatar_len != (size_t)c.avatar_res * c.avatar_res / 4)
+    {
+        ESP_LOGW(TAG, "Own profile refused: %s, avatar %u bytes for %u px",
+                 c.name[0] ? c.name : "no name", (unsigned)avatar_len, c.avatar_res);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // The uuid: the one on the card, else the upload's, else a new one.
+    char        id[CONTACT_UUID_LEN];
+    static char current[PROFILE_JSON_MAX + 1];
+    contacts_recover_file(SELF_JSON);
+    static contact_t old;
+    memset(&old, 0, sizeof(old));
+    bool have = contacts_read_text(SELF_JSON, current, sizeof(current)) >= 0
+                && contacts_parse_profile(current, &old) == ESP_OK && old.uuid[0];
+    if (have)
+    {
+        memcpy(id, old.uuid, CONTACT_UUID_LEN);
+    }
+    else if (c.uuid[0])
+    {
+        memcpy(id, c.uuid, CONTACT_UUID_LEN);
+    }
+    else
+    {
+        uint8_t r[8];
+        esp_fill_random(r, sizeof(r));
+        snprintf(id, sizeof(id), "%02X%02X%02X%02X%02X%02X%02X%02X", r[0], r[1], r[2], r[3], r[4],
+                 r[5], r[6], r[7]);
+    }
+
+    cJSON *root = cJSON_Parse(text);
+    if (!root)
+    {
+        return ESP_ERR_NO_MEM;
+    }
+    cJSON_DeleteItemFromObjectCaseSensitive(root, "uuid");
+    cJSON_AddStringToObject(root, "uuid", id);
+    char *final = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!final)
+    {
+        return ESP_ERR_NO_MEM;
+    }
+
+    // The avatar first: profile.json decides what the avatar is, so it goes
+    // last and a reset in between leaves the old profile with the new avatar
+    // at worst, never a profile pointing at a missing one.
+    esp_err_t err = ensure_dir(SELF_DIR);
+    if (err == ESP_OK)
+    {
+        err = contacts_write_atomic(SELF_AVATAR, avatar, avatar_len);
+    }
+    if (err == ESP_OK)
+    {
+        err = contacts_write_atomic(SELF_JSON, final, strlen(final));
+    }
+    cJSON_free(final);
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Own profile saved: %s, %s, avatar %u px", c.name, id, c.avatar_res);
+        if (out)
+        {
+            memcpy(out, id, CONTACT_UUID_LEN);
+        }
+    }
+    return err;
+}
