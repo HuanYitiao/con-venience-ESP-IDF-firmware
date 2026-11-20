@@ -8,6 +8,7 @@
 #include "contacts.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "fsm.h"
 #include "hw_tests.h"
 #include "mcp23017.h"
 #include "nvs_flash.h"
@@ -140,7 +141,7 @@ static void power_start(void)
     }
 }
 
-// The SD card is optional: without it the UI shows made-up data.
+// Without a card the UI only shows the "No SD Card" page.
 static void storage_start(void)
 {
     if (!sdcard_present())
@@ -185,8 +186,6 @@ void app_main(void)
 #if HW_TEST != HW_TEST_NONE
     hw_test_run(display_ok);
 #else
-    // A1: every page with made-up data where needed, walked by a stand-in
-    // for the page flow (fsm), which comes later.
     if (display_ok)
     {
         storage_start();  // after the display: its CS must be high before SD traffic
@@ -194,40 +193,26 @@ void app_main(void)
         if (err == ESP_OK)
         {
             static contact_t self;  // 4.8 KB, mostly the avatar
-            if (sdcard_is_mounted())
+            bool             sd_ok = sdcard_is_mounted();
+            if (sd_ok)
             {
                 contacts_ensure_self_uuid(NULL, NULL);  // as the old firmware, at each boot
+                contacts_list_friends();
+                err = contacts_load_self(&self);
+                if (err != ESP_OK)
+                {
+                    // First-time setup (A5) takes over here; until then a
+                    // made-up profile keeps the pages usable.
+                    ESP_LOGW(TAG, "No own profile (%s), using made-up data", esp_err_to_name(err));
+                    contacts_fake(&self);
+                }
             }
-            err = sdcard_is_mounted() ? contacts_load_self(&self) : ESP_ERR_INVALID_STATE;
-            if (err != ESP_OK)
-            {
-                ESP_LOGW(TAG, "No own profile (%s), showing made-up data",
-                         sdcard_is_mounted() ? esp_err_to_name(err) : "SD card not mounted");
-                contacts_fake(&self);
-            }
-
-            // Made-up friends when the card has none, so the list has something to show.
-            int count = sdcard_is_mounted() ? contacts_list_friends() : 0;
-            if (count == 0)
-            {
-                count = contacts_fake_friends(12);
-            }
-            static const char *names[CONTACTS_FRIENDS_MAX];
-            for (int i = 0; i < count; i++)
-            {
-                names[i] = contacts_friend_name(i);
-            }
-
-            static ui_demo_t demo;
-            demo = (ui_demo_t){
+            const fsm_config_t config = {
                 .self = &self,
-                .battery_level = battery_level(),
                 .battery_mv = boot_battery_mv,
-                .friend_names = names,
-                .friend_count = count,
-                .load_friend = contacts_load_friend,
+                .sd_ok = sd_ok,
             };
-            ui_demo_start(&demo);
+            fsm_start(&config);
             ui_run();
         }
         ESP_LOGE(TAG, "UI init failed: %s", esp_err_to_name(err));

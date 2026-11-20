@@ -127,22 +127,17 @@ void ui_pairing_transfer_update(int percent);  // the transfer page must be on s
 // A title and one line, centered (e.g. "Profile reset", "Rebooting...").
 void ui_show_message(const char *title, const char *line);
 
+// Called in the LVGL task on every pass of ui_run(), after LVGL has drawn.
+// Returns true if it did something, so the loop runs again at once.
+typedef bool (*ui_poll_t)(void);
+void ui_set_poll(ui_poll_t poll);
+
+// Draws the screen now, before slow work in the LVGL task (an AP start, an
+// archive), so its page is up meanwhile.
+void ui_refresh_now(void);
+
+// Cuts ui_run()'s wait short, from any task (after posting it work).
+void ui_wake(void);
+
 // Runs LVGL. Does not return.
 void ui_run(void);
-
-// ── Until the page flow (fsm) exists ─────────────────────
-// A stand-in for it, enough to walk every page: home, RIGHT to the menu,
-// PAIR click for the own QR code, PAIR long press to a made-up pairing, and
-// UP / DOWN / LEFT long press for the low battery, no SD card and standby
-// pages. Everything pointed to must stay valid.
-typedef struct
-{
-    const contact_t    *self;
-    uint8_t             battery_level;
-    uint16_t            battery_mv;
-    const char *const  *friend_names;
-    int                 friend_count;
-    ui_friend_loader_t  load_friend;
-} ui_demo_t;
-
-void ui_demo_start(const ui_demo_t *demo);

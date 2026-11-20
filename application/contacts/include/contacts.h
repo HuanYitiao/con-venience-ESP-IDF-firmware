@@ -68,6 +68,9 @@ int contacts_list_friends(void);
 // Index in the last list, or -1.
 int contacts_find_friend(const char *uuid);
 
+// Size of the last list.
+int contacts_count_friends(void);
+
 // From the last list; "" out of range.
 const char *contacts_friend_name(int index);
 

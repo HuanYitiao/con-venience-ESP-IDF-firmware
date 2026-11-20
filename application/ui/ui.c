@@ -20,6 +20,8 @@ static const char *TAG = "ui";
 #define UI_MAX_SLEEP_MS 50
 #define UI_BUTTON_QUEUE_LEN 8
 #define UI_LV_KEYS_LEN 8
+// Focusable widgets on one page: up to 64 friends, and a few more.
+#define UI_GROUP_MAX 80
 
 lv_style_t ui_style_focus;
 
@@ -34,6 +36,8 @@ typedef struct
 
 // Button events from the button task, handled in ui_run().
 static QueueHandle_t button_queue;
+static TaskHandle_t  ui_task;
+static ui_poll_t     poll_cb;
 // The current page's key handler, or NULL for LVGL focus. LVGL task only.
 static ui_key_handler_t key_handler;
 // Keys for the LVGL keypad, LVGL task only.
@@ -133,9 +137,8 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
 }
 
 // As the old firmware: UP/DOWN move, RIGHT enters (long press: delete),
-// LEFT goes back. PAIR
-// acts as enter for now, its long press as back; the page flow (fsm) will
-// give PAIR its own meaning (pairing).
+// LEFT goes back. PAIR does nothing in lists and menus (0: no key); pages
+// that use it take the buttons through a key handler.
 static uint32_t to_lv_key(button_id_t id, button_action_t action)
 {
     switch (id)
@@ -151,7 +154,7 @@ static uint32_t to_lv_key(button_id_t id, button_action_t action)
             return action == BUTTON_LONG_PRESS ? LV_KEY_DEL : LV_KEY_ENTER;
         case BUTTON_PAIR:
         default:
-            return action == BUTTON_LONG_PRESS ? LV_KEY_ESC : LV_KEY_ENTER;
+            return 0;
     }
 }
 
@@ -163,6 +166,25 @@ void ui_on_button(button_id_t id, button_action_t action)
     }
     const button_event_t ev = {.id = id, .action = action};
     xQueueSend(button_queue, &ev, 0);
+    ui_wake();
+}
+
+void ui_set_poll(ui_poll_t poll)
+{
+    poll_cb = poll;
+}
+
+void ui_refresh_now(void)
+{
+    lv_refr_now(display);
+}
+
+void ui_wake(void)
+{
+    if (ui_task)
+    {
+        xTaskNotifyGive(ui_task);
+    }
 }
 
 void ui_set_key_handler(ui_key_handler_t handler)
@@ -182,7 +204,11 @@ static void dispatch_buttons(void)
         }
         else
         {
-            lv_key_push(to_lv_key(ev.id, ev.action));
+            uint32_t key = to_lv_key(ev.id, ev.action);
+            if (key)
+            {
+                lv_key_push(key);
+            }
         }
     }
 }
@@ -202,23 +228,40 @@ void ui_screen_show(lv_obj_t *scr)
     lv_keys_count = 0;  // keys meant for the old page
     // No transition: STN smears anything that moves.
     lv_obj_t *old = lv_screen_active();
-    if (old && old != scr)
+
+    // The keypad group is rebuilt with only the new page's widgets. Taking
+    // the old ones out one by one moves the focus to a neighbour on the old
+    // page each time, and that row's focus callback then runs: it loaded a
+    // friend's avatar into the shared buffer the new card was showing, and
+    // touched deleted widgets once (a crash). Removing all at once sends a
+    // single DEFOCUSED. Adding the new widgets after the load also means the
+    // first one is focused with its callbacks in place; added during page
+    // creation into an empty group, it was focused before they existed.
+    static lv_obj_t *keep[UI_GROUP_MAX];
+    int              n = 0;
+    lv_group_t      *group = lv_group_get_default();
+    uint32_t         count = lv_group_get_obj_count(group);
+    for (uint32_t i = 0; i < count; i++)
     {
-        // Out of the keypad group first. Otherwise deleting the focused
-        // widget moves the focus to its neighbour on the dying screen, whose
-        // focus callback then touches already deleted widgets (crashed when
-        // opening a friend from the list).
-        lv_group_t *group = lv_group_get_default();
-        for (int32_t i = (int32_t)lv_group_get_obj_count(group) - 1; i >= 0; i--)
+        lv_obj_t *obj = lv_group_get_obj_by_index(group, i);
+        if (lv_obj_get_screen(obj) == scr)
         {
-            lv_obj_t *obj = lv_group_get_obj_by_index(group, i);
-            if (lv_obj_get_screen(obj) == old)
+            if (n < UI_GROUP_MAX)
             {
-                lv_group_remove_obj(obj);
+                keep[n++] = obj;
+            }
+            else
+            {
+                ESP_LOGW(TAG, "More than %d focusable widgets", UI_GROUP_MAX);
             }
         }
     }
+    lv_group_remove_all_objs(group);
     lv_screen_load(scr);
+    for (int i = 0; i < n; i++)
+    {
+        lv_group_add_obj(group, keep[i]);
+    }
     if (old && old != scr)
     {
         // Only after the current event: pages are switched from inside
@@ -276,16 +319,24 @@ esp_err_t ui_init(void)
 void ui_run(void)
 {
     ESP_LOGI(TAG, "Running");
+    ui_task = xTaskGetCurrentTaskHandle();
     while (true)
     {
         dispatch_buttons();
         uint32_t ms = lv_timer_handler();
+        // After drawing: work a key handler posted (a slow start, say) runs
+        // with its page already on screen.
+        if (poll_cb && poll_cb())
+        {
+            continue;
+        }
         if (ms > UI_MAX_SLEEP_MS)
         {
             ms = UI_MAX_SLEEP_MS;
         }
         // At least one tick, so the idle task (and its watchdog) gets to run.
+        // A button or ui_wake() ends the wait early.
         TickType_t ticks = pdMS_TO_TICKS(ms);
-        vTaskDelay(ticks > 0 ? ticks : 1);
+        ulTaskNotifyTake(pdTRUE, ticks > 0 ? ticks : 1);
     }
 }

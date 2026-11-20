@@ -227,6 +227,11 @@ int contacts_list_friends(void)
     return contacts_friend_count;
 }
 
+int contacts_count_friends(void)
+{
+    return contacts_friend_count;
+}
+
 const char *contacts_friend_name(int index)
 {
     return index >= 0 && index < contacts_friend_count ? contacts_friend_names[index] : "";
