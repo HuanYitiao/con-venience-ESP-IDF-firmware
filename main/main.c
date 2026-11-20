@@ -194,6 +194,10 @@ void app_main(void)
         if (err == ESP_OK)
         {
             static contact_t self;  // 4.8 KB, mostly the avatar
+            if (sdcard_is_mounted())
+            {
+                contacts_ensure_self_uuid(NULL, NULL);  // as the old firmware, at each boot
+            }
             err = sdcard_is_mounted() ? contacts_load_self(&self) : ESP_ERR_INVALID_STATE;
             if (err != ESP_OK)
             {
