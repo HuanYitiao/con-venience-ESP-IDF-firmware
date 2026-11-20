@@ -12,6 +12,7 @@
 #include "hw_tests.h"
 #include "mcp23017.h"
 #include "nvs_flash.h"
+#include "pairing.h"
 #include "pcf85063a.h"
 #include "power.h"
 #include "sdcard.h"
@@ -206,6 +207,12 @@ void app_main(void)
                     ESP_LOGW(TAG, "No own profile (%s), using made-up data", esp_err_to_name(err));
                     contacts_fake(&self);
                 }
+            }
+            // BLE and ACOM at boot, as the old firmware. Needs NVS.
+            esp_err_t pair_err = pairing_init();
+            if (pair_err != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Pairing init failed: %s", esp_err_to_name(pair_err));
             }
             const fsm_config_t config = {
                 .self = &self,

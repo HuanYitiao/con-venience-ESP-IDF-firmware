@@ -4,8 +4,8 @@
 // sets its keys. Pages with focus report choices through their callbacks;
 // pages without take the buttons in page_keys().
 //
-// Pairing (ACOM, BLE) only has its pages here: the events that move it on
-// come from A4.
+// Pairing runs in the pairing component; its events come back through
+// fsm_post, and the peer is saved here, in the task that owns the SD card.
 
 #include "fsm.h"
 
@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "pairing.h"
 #include "pcf85063a.h"
 #include "ui.h"
 #include "wifi_ap.h"
@@ -27,6 +28,7 @@ static const char *TAG = "fsm";
 // Times as the old firmware.
 #define PEER_CARD_MS 10000
 #define PAIRING_MS 30000
+#define PAIRING_UNAVAILABLE_MS 2000
 #define CONNECTING_MS 10000
 #define DELETED_MS 800
 #define DELETE_FAILED_MS 2000
@@ -347,9 +349,35 @@ static void page_keys(button_id_t id, button_action_t action)
 
 // ── State changes ────────────────────────────────────────
 
+static bool is_pairing(fsm_state_t s)
+{
+    return s == FSM_PAIRING || s == FSM_CONNECTING || s == FSM_TRANSFER;
+}
+
+// Pairing events, from the driver tasks.
+static void on_pairing(pairing_event_t event, int arg)
+{
+    switch (event)
+    {
+        case PAIRING_EV_CONTACT:
+            fsm_post(FSM_EV_PAIR_CONTACT, arg);
+            break;
+        case PAIRING_EV_PROGRESS:
+            fsm_post(FSM_EV_PAIR_PROGRESS, arg);
+            break;
+        case PAIRING_EV_DONE:
+            fsm_post(FSM_EV_PAIR_DONE, arg);
+            break;
+    }
+}
+
 static void leave(fsm_state_t next)
 {
     stop_timers();
+    if (is_pairing(state) && !is_pairing(next))
+    {
+        pairing_stop();  // a result after this is dropped, as the old firmware
+    }
     if (state == FSM_WIFI_SETUP && next != FSM_WIFI_SETUP)
     {
         wifi_ap_stop();
@@ -450,9 +478,21 @@ static void enter(fsm_state_t next, int arg)
             return;  // no keys: it reboots either way
         }
         case FSM_PAIRING:
+        {
+            esp_err_t err = pairing_start(on_pairing);
+            if (err != ESP_OK)
+            {
+                ESP_LOGW(TAG, "Pairing start failed: %s", esp_err_to_name(err));
+                ui_show_message("Cannot pair", err == ESP_ERR_INVALID_STATE
+                                                   ? "No profile to share"
+                                                   : "Please try again");
+                start_timeout(PAIRING_UNAVAILABLE_MS);
+                break;
+            }
             ui_show_pairing_wait(cfg.self);
             start_timeout(PAIRING_MS);
             break;
+        }
         case FSM_CONNECTING:
             ui_show_pairing_connecting(cfg.self);
             start_timeout(CONNECTING_MS);
@@ -525,13 +565,13 @@ static void handle(fsm_event_t event, int arg)
         case FSM_EV_TICK:
             on_tick_event();
             break;
-        case FSM_EV_ACOM_DONE:
-            if (state == FSM_PAIRING && arg)
+        case FSM_EV_PAIR_CONTACT:
+            if (state == FSM_PAIRING)
             {
                 enter(FSM_CONNECTING, 0);
             }
             break;
-        case FSM_EV_BLE_PROGRESS:
+        case FSM_EV_PAIR_PROGRESS:
             if (state == FSM_CONNECTING)
             {
                 enter(FSM_TRANSFER, arg);
@@ -541,18 +581,16 @@ static void handle(fsm_event_t event, int arg)
                 ui_pairing_transfer_update(arg);
             }
             break;
-        case FSM_EV_PAIRED:
-            // A fast exchange may finish before any progress, so from
-            // connecting too.
+        case FSM_EV_PAIR_DONE:
+            // A fast exchange may end before any progress: from connecting too.
             if (state == FSM_CONNECTING || state == FSM_TRANSFER)
             {
-                enter(arg >= 0 ? FSM_PEER_CARD : FSM_HOME, arg);
-            }
-            break;
-        case FSM_EV_PAIR_FAILED:
-            if (state == FSM_PAIRING || state == FSM_CONNECTING || state == FSM_TRANSFER)
-            {
-                enter(FSM_HOME, 0);
+                int index = arg ? pairing_save() : -1;
+                if (index < 0)
+                {
+                    ESP_LOGW(TAG, "Pairing failed");
+                }
+                enter(index >= 0 ? FSM_PEER_CARD : FSM_HOME, index);
             }
             break;
     }

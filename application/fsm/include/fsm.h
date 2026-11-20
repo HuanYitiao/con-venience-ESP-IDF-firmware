@@ -36,10 +36,9 @@ typedef enum
 {
     FSM_EV_TIMEOUT,      // internal: the state's timer (arg: its generation)
     FSM_EV_TICK,         // internal: once a second on the clock and Wi-Fi pages
-    FSM_EV_ACOM_DONE,    // arg: 1 got the peer's address, 0 failed
-    FSM_EV_BLE_PROGRESS, // arg: percent, -1 while the total is unknown
-    FSM_EV_PAIRED,       // arg: the new friend's list index, -1 if saving failed
-    FSM_EV_PAIR_FAILED,
+    FSM_EV_PAIR_CONTACT,   // internal: ACOM got the peer, BLE starts
+    FSM_EV_PAIR_PROGRESS,  // internal: arg percent, -1 without a total
+    FSM_EV_PAIR_DONE,      // internal: arg 1 the peer's profile arrived, 0 failed
 } fsm_event_t;
 
 typedef struct
