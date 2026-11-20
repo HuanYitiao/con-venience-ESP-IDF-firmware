@@ -14,8 +14,7 @@
 
 static const char *TAG = "ui";
 
-// Partial rendering into a band of this many rows (a multiple of the
-// panel's 4-row page): 256 x 32 L8 = 8 KB, plus 2 KB for the 2bpp copy.
+// Partial rendering into a band of this many rows: 256 x 32 L8 = 8 KB.
 #define UI_BUF_ROWS 32
 // lv_timer_handler() is called at least this often.
 #define UI_MAX_SLEEP_MS 50
@@ -42,19 +41,15 @@ static uint32_t lv_keys[UI_LV_KEYS_LEN];
 static size_t   lv_keys_head, lv_keys_count;
 
 static uint8_t render_buf[ST75256_WIDTH * UI_BUF_ROWS] __attribute__((aligned(4)));
-static uint8_t panel_buf[ST75256_WIDTH * UI_BUF_ROWS / ST75256_PAGE_HEIGHT];
+// The whole screen in the panel's own 2bpp layout (8 KB). LVGL splits a
+// large dirty area into chunks of buffer size / width rows, which need not
+// be a multiple of the 4-row page: a chunk may start or end inside a page.
+// Pixels go here row-exact, and whole pages go to the panel from here.
+static uint8_t frame[ST75256_PAGES * ST75256_WIDTH];
 
 static uint32_t tick_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000);
-}
-
-// The panel is written in pages of 4 rows: widen every dirty area to whole pages.
-static void round_to_pages(lv_event_t *e)
-{
-    lv_area_t *area = lv_event_get_param(e);
-    area->y1 &= ~(ST75256_PAGE_HEIGHT - 1);
-    area->y2 |= ST75256_PAGE_HEIGHT - 1;
 }
 
 // L8 (0 black .. 255 white) to the panel's 2bpp (0 white .. 3 black), four
@@ -62,28 +57,30 @@ static void round_to_pages(lv_event_t *e)
 static void flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
 {
     const int32_t w = lv_area_get_width(area);
-    const int32_t pages = lv_area_get_height(area) / ST75256_PAGE_HEIGHT;
     const int32_t stride = lv_draw_buf_width_to_stride(w, LV_COLOR_FORMAT_L8);
 
-    for (int32_t p = 0; p < pages; p++)
+    for (int32_t y = area->y1; y <= area->y2; y++)
     {
-        const uint8_t *rows = px + p * ST75256_PAGE_HEIGHT * stride;
+        const uint8_t *row = px + (y - area->y1) * stride;
+        uint8_t       *dst = &frame[(y / ST75256_PAGE_HEIGHT) * ST75256_WIDTH + area->x1];
+        const int      shift = (ST75256_PAGE_HEIGHT - 1 - y % ST75256_PAGE_HEIGHT) * 2;
         for (int32_t x = 0; x < w; x++)
         {
-            uint8_t byte = 0;
-            for (int r = 0; r < ST75256_PAGE_HEIGHT; r++)
-            {
-                uint8_t gray = 3 - (rows[r * stride + x] >> 6);
-                byte |= gray << ((ST75256_PAGE_HEIGHT - 1 - r) * 2);
-            }
-            panel_buf[p * w + x] = byte;
+            uint8_t gray = 3 - (row[x] >> 6);
+            dst[x] = (dst[x] & ~(0x3 << shift)) | (gray << shift);
         }
     }
 
-    esp_err_t err = st75256_write(area->x1, area->y1 / ST75256_PAGE_HEIGHT, w, pages, panel_buf);
-    if (err != ESP_OK)
+    // Each page's window is contiguous in frame, so one write per page.
+    for (int32_t p = area->y1 / ST75256_PAGE_HEIGHT; p <= area->y2 / ST75256_PAGE_HEIGHT; p++)
     {
-        ESP_LOGE(TAG, "Flush failed: %s", esp_err_to_name(err));
+        esp_err_t err =
+            st75256_write(area->x1, p, w, 1, &frame[p * ST75256_WIDTH + area->x1]);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Flush failed: %s", esp_err_to_name(err));
+            break;
+        }
     }
     lv_display_flush_ready(disp);
 }
@@ -229,7 +226,9 @@ esp_err_t ui_init(void)
     lv_display_set_buffers(display, render_buf, NULL, sizeof(render_buf),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display, flush);
-    lv_display_add_event_cb(display, round_to_pages, LV_EVENT_INVALIDATE_AREA, NULL);
+    // Edges of circles and rounded corners would come out gray otherwise;
+    // the UI is black and white (fonts are bitmaps anyway).
+    lv_display_set_antialiasing(display, false);
 
     // Black and white widgets with the 6x12 bitmap font.
     lv_display_set_theme(display, lv_theme_mono_init(display, false, UI_FONT_SMALL));
