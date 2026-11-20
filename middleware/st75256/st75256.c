@@ -112,6 +112,10 @@ static bool on_write_done(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_e
 {
     BaseType_t woken = pdFALSE;
     xSemaphoreGiveFromISR(write_done, &woken);
+    // esp_lcd ignores this callback's return value, so the waiting task
+    // would only run at the next tick: up to 10 ms per write, about 300 ms
+    // for a full screen. Ask for the switch here (it happens on ISR exit).
+    portYIELD_FROM_ISR(woken);
     return woken == pdTRUE;
 }
 
