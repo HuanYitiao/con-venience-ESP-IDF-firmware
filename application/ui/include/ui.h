@@ -94,6 +94,14 @@ typedef struct
 
 void ui_show_wifi_setup(const ui_wifi_setup_t *setup);
 
+// Pairing, as the old firmware: waiting for contact, connecting (a ripple
+// next to the own avatar, animating by itself), the transfer. percent < 0:
+// no total known yet ("...").
+void ui_show_pairing_wait(const contact_t *self);
+void ui_show_pairing_connecting(const contact_t *self);
+void ui_show_pairing_transfer(int percent);
+void ui_pairing_transfer_update(int percent);  // the transfer page must be on screen
+
 // A title and one line, centered (e.g. "Profile reset", "Rebooting...").
 void ui_show_message(const char *title, const char *line);
 
@@ -102,7 +110,7 @@ void ui_run(void);
 
 // ── Until the page flow (fsm) exists ─────────────────────
 // A stand-in for it, enough to walk every page: home, RIGHT to the menu,
-// and on from there. Everything pointed to must stay valid.
+// PAIR long press to a made-up pairing. Everything pointed to must stay valid.
 typedef struct
 {
     const contact_t    *self;

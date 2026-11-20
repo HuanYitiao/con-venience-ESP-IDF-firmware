@@ -11,20 +11,45 @@
 
 static const char *TAG = "ui_demo";
 
+// Pairing: each step after a fixed time, as if the peer were there.
+#define PAIR_CONTACT_MS 2000
+#define PAIR_CONNECT_MS 2000
+#define PAIR_NO_TOTAL_MS 1000
+#define PAIR_STEP_MS 300
+#define PAIR_STEP_PCT 7
+
 static const ui_demo_t *demo;
 static bool             auto_sleep = true;
 static int              wifi_step;
 static lv_timer_t      *clock_timer;
+static lv_timer_t      *pair_timer;
+static int              pair_stage;  // 0 wait, 1 connecting, 2 transfer
+static int              pair_pct;
 
 static void show_home(void);
 static void show_menu(void);
 
-static void stop_clock(void)
+// The clock and pairing timers belong to their pages.
+static void stop_timers(void)
 {
     if (clock_timer)
     {
         lv_timer_delete(clock_timer);
         clock_timer = NULL;
+    }
+    if (pair_timer)
+    {
+        lv_timer_delete(pair_timer);
+        pair_timer = NULL;
+    }
+}
+
+// LEFT or PAIR long press from the peer's card back home.
+static void card_keys(button_id_t id, button_action_t action)
+{
+    if (id == BUTTON_LEFT || (id == BUTTON_PAIR && action == BUTTON_LONG_PRESS))
+    {
+        show_home();
     }
 }
 
@@ -165,8 +190,69 @@ static const ui_menu_actions_t menu_actions = {
 
 static void show_menu(void)
 {
-    stop_clock();
+    stop_timers();
     ui_show_menu(&menu_actions, demo->battery_mv, auto_sleep);
+}
+
+// The peer's card after a pairing: the first made-up friend.
+static void pair_done(void)
+{
+    stop_timers();
+    static contact_t peer;  // 4.8 KB: not on the stack
+    if (demo->load_friend(0, &peer) != ESP_OK)
+    {
+        contacts_fake(&peer);
+    }
+    ui_show_contact_card(&peer);
+    ui_set_key_handler(card_keys);
+}
+
+static void pair_tick(lv_timer_t *t)
+{
+    switch (pair_stage)
+    {
+        case 0:  // "contact": connecting
+            pair_stage = 1;
+            ui_show_pairing_connecting(demo->self);
+            lv_timer_set_period(t, PAIR_CONNECT_MS);
+            break;
+        case 1:  // connected: no total known at first
+            pair_stage = 2;
+            pair_pct = -1;
+            ui_show_pairing_transfer(pair_pct);
+            lv_timer_set_period(t, PAIR_NO_TOTAL_MS);
+            break;
+        default:
+            pair_pct = pair_pct < 0 ? 0 : pair_pct + PAIR_STEP_PCT;
+            if (pair_pct > 100)
+            {
+                pair_done();
+                return;
+            }
+            ui_pairing_transfer_update(pair_pct);
+            lv_timer_set_period(t, PAIR_STEP_MS);
+            break;
+    }
+}
+
+// PAIR long press cancels while waiting, as the old firmware.
+static void pair_keys(button_id_t id, button_action_t action)
+{
+    if (id == BUTTON_PAIR && action == BUTTON_LONG_PRESS && pair_stage == 0)
+    {
+        show_home();
+    }
+}
+
+static void start_pairing(void)
+{
+    stop_timers();
+    pair_stage = 0;
+    ui_show_pairing_wait(demo->self);
+    pair_timer = lv_timer_create(pair_tick, PAIR_CONTACT_MS, NULL);
+    // Only waiting can be cancelled; connecting and the transfer take no
+    // keys, as the old firmware (each ui_show_* drops the handler).
+    ui_set_key_handler(pair_keys);
 }
 
 static void home_keys(button_id_t id, button_action_t action)
@@ -176,11 +262,15 @@ static void home_keys(button_id_t id, button_action_t action)
         ui_menu_rewind();
         show_menu();
     }
+    else if (id == BUTTON_PAIR && action == BUTTON_LONG_PRESS)
+    {
+        start_pairing();
+    }
 }
 
 static void show_home(void)
 {
-    stop_clock();
+    stop_timers();
     ui_show_home(demo->self, demo->battery_level);
     ui_set_key_handler(home_keys);
 }
