@@ -132,7 +132,8 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
     data->state = LV_INDEV_STATE_RELEASED;
 }
 
-// As the old firmware: UP/DOWN move, RIGHT enters, LEFT goes back. PAIR
+// As the old firmware: UP/DOWN move, RIGHT enters (long press: delete),
+// LEFT goes back. PAIR
 // acts as enter for now, its long press as back; the page flow (fsm) will
 // give PAIR its own meaning (pairing).
 static uint32_t to_lv_key(button_id_t id, button_action_t action)
@@ -146,7 +147,8 @@ static uint32_t to_lv_key(button_id_t id, button_action_t action)
         case BUTTON_LEFT:
             return LV_KEY_ESC;
         case BUTTON_RIGHT:
-            return LV_KEY_ENTER;
+            // Long press: delete a friend, as the old firmware.
+            return action == BUTTON_LONG_PRESS ? LV_KEY_DEL : LV_KEY_ENTER;
         case BUTTON_PAIR:
         default:
             return action == BUTTON_LONG_PRESS ? LV_KEY_ESC : LV_KEY_ENTER;
@@ -199,7 +201,31 @@ void ui_screen_show(lv_obj_t *scr)
     key_handler = NULL;
     lv_keys_count = 0;  // keys meant for the old page
     // No transition: STN smears anything that moves.
-    lv_screen_load_anim(scr, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, true);
+    lv_obj_t *old = lv_screen_active();
+    if (old && old != scr)
+    {
+        // Out of the keypad group first. Otherwise deleting the focused
+        // widget moves the focus to its neighbour on the dying screen, whose
+        // focus callback then touches already deleted widgets (crashed when
+        // opening a friend from the list).
+        lv_group_t *group = lv_group_get_default();
+        for (int32_t i = (int32_t)lv_group_get_obj_count(group) - 1; i >= 0; i--)
+        {
+            lv_obj_t *obj = lv_group_get_obj_by_index(group, i);
+            if (lv_obj_get_screen(obj) == old)
+            {
+                lv_group_remove_obj(obj);
+            }
+        }
+    }
+    lv_screen_load(scr);
+    if (old && old != scr)
+    {
+        // Only after the current event: pages are switched from inside
+        // event callbacks of the old screen's widgets, which LVGL still
+        // uses when the callback returns.
+        lv_obj_delete_async(old);
+    }
 }
 
 esp_err_t ui_init(void)
