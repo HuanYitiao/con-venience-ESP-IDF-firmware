@@ -12,29 +12,6 @@
 #define TITLE_H 16
 #define QR_SIZE 116  // a version 3 code at 4 px per module, inside the left half
 
-static lv_obj_t *centered(lv_obj_t *parent, const lv_font_t *font, int32_t y, const char *text)
-{
-    lv_obj_t *label = lv_label_create(parent);
-    lv_obj_set_style_text_font(label, font, 0);
-    lv_label_set_text(label, text);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
-    return label;
-}
-
-// Inverted title bar across the top, as the old firmware's.
-static void title_bar(lv_obj_t *scr, const char *title)
-{
-    lv_obj_t *bar = lv_obj_create(scr);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(bar, lv_color_black(), 0);
-    lv_obj_set_size(bar, SCREEN_W, TITLE_H);
-    lv_obj_t *label = lv_label_create(bar);
-    lv_obj_set_style_text_font(label, UI_FONT_LARGE, 0);
-    lv_obj_set_style_text_color(label, lv_color_white(), 0);
-    lv_label_set_text(label, title);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 6, 0);
-}
 
 // ── Clock ────────────────────────────────────────────────
 
@@ -54,27 +31,27 @@ void ui_clock_update(const ui_clock_t *c)
 void ui_show_clock(const ui_clock_t *c)
 {
     lv_obj_t *scr = ui_screen_create();
-    title_bar(scr, "Clock");
+    ui_title_bar(scr, 0, UI_SCREEN_W, "Clock");
     clock_time = NULL;
     clock_date = NULL;
 
     switch (c->status)
     {
         case UI_CLOCK_OK:
-            clock_time = centered(scr, UI_FONT_CLOCK, 40, "");
-            clock_date = centered(scr, UI_FONT_LARGE, 80, "");
+            clock_time = ui_centered_label(scr, UI_FONT_CLOCK, 40, "");
+            clock_date = ui_centered_label(scr, UI_FONT_LARGE, 80, "");
             ui_clock_update(c);
             break;
         case UI_CLOCK_NOT_SET:
             // Fail-closed: never show a time the RTC cannot vouch for.
-            centered(scr, UI_FONT_LARGE, 40, "Time not set");
-            centered(scr, UI_FONT_SMALL, 64, "Settings > Wi-Fi setup");
-            centered(scr, UI_FONT_SMALL, 76, "to sync time");
+            ui_centered_label(scr, UI_FONT_LARGE, 40, "Time not set");
+            ui_centered_label(scr, UI_FONT_SMALL, 64, "Settings > Wi-Fi setup");
+            ui_centered_label(scr, UI_FONT_SMALL, 76, "to sync time");
             break;
         case UI_CLOCK_RTC_ERROR:
         default:
-            centered(scr, UI_FONT_LARGE, 40, "RTC error");
-            centered(scr, UI_FONT_SMALL, 64, "I2C read failed");
+            ui_centered_label(scr, UI_FONT_LARGE, 40, "RTC error");
+            ui_centered_label(scr, UI_FONT_SMALL, 64, "I2C read failed");
             break;
     }
     ui_screen_show(scr);
@@ -123,10 +100,10 @@ void ui_show_wifi_setup(const ui_wifi_setup_t *s)
     }
     else
     {
-        centered(scr, UI_FONT_LARGE, 8, "Saved");
-        centered(scr, UI_FONT_SMALL, 34, s->self_id);
-        centered(scr, UI_FONT_SMALL, 50, "ID (recovery coming soon)");
-        centered(scr, UI_FONT_SMALL, 72, "Reboot to apply");
+        ui_centered_label(scr, UI_FONT_LARGE, 8, "Saved");
+        ui_centered_label(scr, UI_FONT_SMALL, 34, s->self_id);
+        ui_centered_label(scr, UI_FONT_SMALL, 50, "ID (recovery coming soon)");
+        ui_centered_label(scr, UI_FONT_SMALL, 72, "Reboot to apply");
     }
     ui_screen_show(scr);
 }
@@ -136,10 +113,10 @@ void ui_show_wifi_setup(const ui_wifi_setup_t *s)
 void ui_show_message(const char *title, const char *line)
 {
     lv_obj_t *scr = ui_screen_create();
-    centered(scr, UI_FONT_LARGE, 48, title);
+    ui_centered_label(scr, UI_FONT_LARGE, 48, title);
     if (line)
     {
-        centered(scr, UI_FONT_SMALL, 68, line);
+        ui_centered_label(scr, UI_FONT_SMALL, 68, line);
     }
     ui_screen_show(scr);
 }

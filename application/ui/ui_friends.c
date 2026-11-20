@@ -1,8 +1,11 @@
 // Friend list, as the old firmware: names on the right, the focused one
-// marked, and that friend's avatar on the left. UP/DOWN move the focus.
-// The list scrolls without animation: on the STN any glide smears.
-
-#include <string.h>
+// marked, and that friend's avatar on the left. UP/DOWN move, RIGHT opens
+// the friend, RIGHT long press deletes, LEFT goes back.
+//
+// The focused row is marked with "»" in front of the name. Inverting it (as
+// menus do) puts a solid black bar in the same rows as the avatar's grays,
+// which then take heavy crosstalk; of the styles tried on the panel
+// (invert, frame, left bar, underline, arrow) the arrow looked best.
 
 #include "esp_log.h"
 #include "ui.h"
@@ -10,43 +13,9 @@
 
 static const char *TAG = "ui";
 
-#define HALF 128
-#define ROW_H 16  // 7x14 bold plus a pixel above and below
-
-static ui_friend_loader_t loader;
-static void (*back_cb)(void);
-static lv_obj_t *avatar_area;
-
-// The focused row is marked with "»" in front of the name. Inverting the
-// row (as menus do) puts a solid black bar in the same rows as the avatar's
-// grays, which then take heavy crosstalk; of the styles tried on the panel
-// (invert, frame, left bar, underline, arrow) the arrow looked best.
-static void set_marker(lv_obj_t *row, bool on)
-{
-    lv_obj_set_hidden(lv_obj_get_child(row, 0), !on);  // child 0: the "»" label
-}
-
-static void on_defocus(lv_event_t *e)
-{
-    set_marker(lv_event_get_target(e), false);
-}
-
-static void on_key(lv_event_t *e)
-{
-    if (lv_event_get_key(e) == LV_KEY_ESC && back_cb)
-    {
-        back_cb();
-    }
-}
-
-// An empty list has nothing to focus: LEFT comes through the key handler.
-static void empty_keys(button_id_t id, button_action_t action)
-{
-    if (id == BUTTON_LEFT && back_cb)
-    {
-        back_cb();
-    }
-}
+static ui_friend_loader_t         loader;
+static const ui_friend_actions_t *actions;
+static lv_obj_t                  *avatar_area;
 
 // The focused friend's avatar, or "No avatar".
 static void show_avatar(int index)
@@ -79,25 +48,59 @@ static void show_avatar(int index)
 
 static void on_focus(lv_event_t *e)
 {
-    lv_obj_t *row = lv_event_get_target(e);
-    set_marker(row, true);
-    lv_obj_scroll_to_view(row, LV_ANIM_OFF);
     show_avatar((int)(intptr_t)lv_event_get_user_data(e));
 }
 
-void ui_show_friend_list(const char *const *names, int count, ui_friend_loader_t load,
-                         void (*on_back)(void))
+static void on_key(lv_event_t *e)
+{
+    int index = (int)(intptr_t)lv_event_get_user_data(e);
+    switch (lv_event_get_key(e))
+    {
+        case LV_KEY_ENTER:
+            if (actions->open)
+            {
+                actions->open(index);
+            }
+            break;
+        case LV_KEY_DEL:
+            if (actions->remove)
+            {
+                actions->remove(index);
+            }
+            break;
+        case LV_KEY_ESC:
+            if (actions->back)
+            {
+                actions->back();
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+// An empty list has nothing to focus: LEFT comes through the key handler.
+static void empty_keys(button_id_t id, button_action_t action)
+{
+    if (id == BUTTON_LEFT && actions->back)
+    {
+        actions->back();
+    }
+}
+
+void ui_show_friend_list(const char *const *names, int count, int focus, ui_friend_loader_t load,
+                         const ui_friend_actions_t *a)
 {
     lv_obj_t *scr = ui_screen_create();
     loader = load;
-    back_cb = on_back;
+    actions = a;
 
     if (count <= 0)
     {
         lv_obj_t *label = lv_label_create(scr);
         lv_obj_set_style_text_font(label, UI_FONT_SMALL, 0);
         lv_label_set_text(label, "No friends yet");
-        lv_obj_align(label, LV_ALIGN_CENTER, HALF / 2, 0);
+        lv_obj_align(label, LV_ALIGN_CENTER, UI_HALF / 2, 0);
         ui_screen_show(scr);
         ui_set_key_handler(empty_keys);
         return;
@@ -105,44 +108,31 @@ void ui_show_friend_list(const char *const *names, int count, ui_friend_loader_t
 
     avatar_area = lv_obj_create(scr);
     lv_obj_remove_style_all(avatar_area);
-    lv_obj_set_size(avatar_area, HALF, HALF);
-    lv_obj_set_pos(avatar_area, 0, 0);
+    lv_obj_set_size(avatar_area, UI_HALF, UI_SCREEN_H);
 
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
-    lv_obj_set_size(list, HALF, HALF);
-    lv_obj_set_pos(list, HALF, 0);
+    lv_obj_set_size(list, UI_HALF, UI_SCREEN_H);
+    lv_obj_set_pos(list, UI_HALF, 0);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
 
-    lv_obj_t *first = NULL;
+    if (focus < 0 || focus >= count)
+    {
+        focus = 0;
+    }
+    lv_obj_t *start = NULL;
     for (int i = 0; i < count; i++)
     {
-        lv_obj_t *row = lv_button_create(list);
-        lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, HALF, ROW_H);
+        lv_obj_t *row = ui_marker_row(list, UI_HALF, names[i]);
         lv_obj_add_event_cb(row, on_focus, LV_EVENT_FOCUSED, (void *)(intptr_t)i);
-        lv_obj_add_event_cb(row, on_defocus, LV_EVENT_DEFOCUSED, NULL);
-        lv_obj_add_event_cb(row, on_key, LV_EVENT_KEY, NULL);
-
-        lv_obj_t *marker = lv_label_create(row);  // child 0
-        lv_obj_set_style_text_font(marker, UI_FONT_LARGE, 0);
-        lv_label_set_text(marker, "\u00bb");
-        lv_obj_align(marker, LV_ALIGN_LEFT_MID, 1, 0);
-        lv_obj_set_hidden(marker, true);
-
-        lv_obj_t *label = lv_label_create(row);
-        lv_obj_set_style_text_font(label, UI_FONT_LARGE, 0);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(label, HALF - 14);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 10, 0);
-        lv_label_set_text(label, names[i]);
-        if (!first)
+        lv_obj_add_event_cb(row, on_key, LV_EVENT_KEY, (void *)(intptr_t)i);
+        if (i == focus)
         {
-            first = row;
+            start = row;
         }
     }
 
     ui_screen_show(scr);
-    lv_group_focus_obj(first);  // fires on_focus: the first avatar shows
+    lv_group_focus_obj(start);  // fires on_focus: that avatar shows
 }

@@ -45,10 +45,8 @@ static void make_band(int side, int w, bool mirror)
     img->data = px;
 }
 
-void ui_show_home(const contact_t *self, uint8_t battery_level)
+void ui_side_bands(lv_obj_t *scr, uint8_t battery_level)
 {
-    lv_obj_t *scr = ui_screen_create();
-
     if (battery_level > BATTERY_LEVELS)
     {
         battery_level = BATTERY_LEVELS;
@@ -63,6 +61,12 @@ void ui_show_home(const contact_t *self, uint8_t battery_level)
     lv_obj_t *right = lv_image_create(scr);
     lv_image_set_src(right, &band_img[1]);
     lv_obj_set_pos(right, SCREEN_W - w, 0);
+}
+
+void ui_show_home(const contact_t *self, uint8_t battery_level)
+{
+    lv_obj_t *scr = ui_screen_create();
+    ui_side_bands(scr, battery_level);
 
     const lv_image_dsc_t *avatar = ui_avatar_image(self, true);
     if (avatar)

@@ -17,6 +17,8 @@ static const char *TAG = "ui_demo";
 #define PAIR_NO_TOTAL_MS 1000
 #define PAIR_STEP_MS 300
 #define PAIR_STEP_PCT 7
+// How long a short message ("Friend deleted") stays.
+#define MESSAGE_MS 1500
 
 static const ui_demo_t *demo;
 static bool             auto_sleep = true;
@@ -25,13 +27,20 @@ static lv_timer_t      *clock_timer;
 static lv_timer_t      *pair_timer;
 static int              pair_stage;  // 0 wait, 1 connecting, 2 transfer
 static int              pair_pct;
+static lv_timer_t      *msg_timer;
+static bool             home_qr;  // the home page shows the own QR code
 
 static void show_home(void);
 static void show_menu(void);
 
-// The clock and pairing timers belong to their pages.
+// The clock, pairing and message timers belong to their pages.
 static void stop_timers(void)
 {
+    if (msg_timer)
+    {
+        lv_timer_delete(msg_timer);
+        msg_timer = NULL;
+    }
     if (clock_timer)
     {
         lv_timer_delete(clock_timer);
@@ -62,15 +71,125 @@ static void back_to_menu_keys(button_id_t id, button_action_t action)
     }
 }
 
+// ── Profile: card, RIGHT to the links, RIGHT to a link's QR code ─────────
+
+static const contact_t *profile;  // the own profile or a friend's
+static void (*profile_exit)(void);  // LEFT on the card
+static int link_focus;
+
+static void show_profile_card(void);
+static void show_links(void);
+
+static void qr_keys(button_id_t id, button_action_t action)
+{
+    if (id == BUTTON_LEFT)
+    {
+        show_links();
+    }
+}
+
+static void open_link(int index)
+{
+    link_focus = index;
+    ui_show_qr(profile->links[index].url);
+    ui_set_key_handler(qr_keys);
+}
+
+static void show_links(void)
+{
+    ui_show_links(profile, link_focus, open_link, show_profile_card);
+}
+
+static void profile_keys(button_id_t id, button_action_t action)
+{
+    if (id == BUTTON_LEFT)
+    {
+        profile_exit();
+    }
+    else if (id == BUTTON_RIGHT && action == BUTTON_CLICK)
+    {
+        link_focus = 0;
+        show_links();
+    }
+}
+
+static void show_profile_card(void)
+{
+    ui_show_contact_card(profile);
+    ui_set_key_handler(profile_keys);
+}
+
+static void start_profile(const contact_t *c, void (*exit)(void))
+{
+    profile = c;
+    profile_exit = exit;
+    show_profile_card();
+}
+
 static void on_profile(void)
 {
-    ui_show_contact_card(demo->self);
-    ui_set_key_handler(back_to_menu_keys);
+    start_profile(demo->self, show_menu);
+}
+
+// ── Friends: RIGHT opens one, RIGHT long press deletes ───────────────────
+
+static int       friend_focus;
+static contact_t friend_contact;  // 4.8 KB: not on the stack
+
+static void show_friends(void);
+
+static void load_friend(int index)
+{
+    friend_focus = index;
+    if (demo->load_friend(index, &friend_contact) != ESP_OK)
+    {
+        contacts_fake(&friend_contact);
+    }
+}
+
+static void friend_open(int index)
+{
+    load_friend(index);
+    start_profile(&friend_contact, show_friends);
+}
+
+static void message_done(lv_timer_t *t)
+{
+    msg_timer = NULL;  // a one-shot timer deletes itself
+    show_friends();
+}
+
+// Made up: nothing is deleted, the list comes back as it was.
+static void friend_deleted(void)
+{
+    ui_show_message("Friend deleted", NULL);
+    msg_timer = lv_timer_create(message_done, MESSAGE_MS, NULL);
+    lv_timer_set_repeat_count(msg_timer, 1);
+}
+
+static void friend_remove(int index)
+{
+    load_friend(index);
+    ui_show_delete_confirm(&friend_contact, show_friends, friend_deleted);
+}
+
+static const ui_friend_actions_t friend_actions = {
+    .open = friend_open,
+    .remove = friend_remove,
+    .back = show_menu,
+};
+
+static void show_friends(void)
+{
+    stop_timers();
+    ui_show_friend_list(demo->friend_names, demo->friend_count, friend_focus, demo->load_friend,
+                        &friend_actions);
 }
 
 static void on_friends(void)
 {
-    ui_show_friend_list(demo->friend_names, demo->friend_count, demo->load_friend, show_menu);
+    friend_focus = 0;
+    show_friends();
 }
 
 // Made-up AP details; the real ones come from wifi_ap.
@@ -255,23 +374,73 @@ static void start_pairing(void)
     ui_set_key_handler(pair_keys);
 }
 
+// Low battery, no SD card and standby have no real trigger yet: any button
+// leaves them.
+static void any_key_home(button_id_t id, button_action_t action)
+{
+    show_home();
+}
+
+static void show_event_page(int which)
+{
+    switch (which)
+    {
+        case 0:
+            ui_show_message("Low Battery", "Please charge");
+            break;
+        case 1:
+            ui_show_message("No SD Card", "Insert card to continue");
+            break;
+        default:
+            ui_show_standby();
+            break;
+    }
+    ui_set_key_handler(any_key_home);
+}
+
 static void home_keys(button_id_t id, button_action_t action)
 {
-    if (id == BUTTON_RIGHT)
+    bool long_press = action == BUTTON_LONG_PRESS;
+    if (id == BUTTON_RIGHT && !long_press)
     {
         ui_menu_rewind();
         show_menu();
     }
-    else if (id == BUTTON_PAIR && action == BUTTON_LONG_PRESS)
+    else if (id == BUTTON_PAIR && long_press)
     {
         start_pairing();
+    }
+    else if (id == BUTTON_PAIR)
+    {
+        // The own first link as a QR code, and back, as the old firmware.
+        home_qr = !home_qr && demo->self->link_count > 0;
+        show_home();
+    }
+    else if (long_press && id == BUTTON_UP)
+    {
+        show_event_page(0);
+    }
+    else if (long_press && id == BUTTON_DOWN)
+    {
+        show_event_page(1);
+    }
+    else if (long_press && id == BUTTON_LEFT)
+    {
+        show_event_page(2);
     }
 }
 
 static void show_home(void)
 {
     stop_timers();
-    ui_show_home(demo->self, demo->battery_level);
+    if (home_qr)
+    {
+        ui_show_qr(demo->self->links[0].url);
+    }
+    else
+    {
+        ui_show_home(demo->self, demo->battery_level);
+    }
     ui_set_key_handler(home_keys);
 }
 

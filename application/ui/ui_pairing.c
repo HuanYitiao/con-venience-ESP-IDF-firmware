@@ -30,14 +30,6 @@
 #define BAR_GAP 1
 #define BAR_FILL_W (BAR_W - 2 * (BAR_BORDER + BAR_GAP))
 
-static lv_obj_t *centered(lv_obj_t *parent, const lv_font_t *font, int32_t y, const char *text)
-{
-    lv_obj_t *label = lv_label_create(parent);
-    lv_obj_set_style_text_font(label, font, 0);
-    lv_label_set_text(label, text);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
-    return label;
-}
 
 static void own_avatar(lv_obj_t *scr, const contact_t *self)
 {
@@ -154,8 +146,8 @@ static void on_transfer_delete(lv_event_t *e)
 void ui_show_pairing_transfer(int percent)
 {
     lv_obj_t *scr = ui_screen_create();
-    centered(scr, UI_FONT_LARGE, 26, "Receiving");
-    transfer_pct = centered(scr, UI_FONT_LARGE, 48, "");
+    ui_centered_label(scr, UI_FONT_LARGE, 26, "Receiving");
+    transfer_pct = ui_centered_label(scr, UI_FONT_LARGE, 48, "");
     lv_obj_add_event_cb(transfer_pct, on_transfer_delete, LV_EVENT_DELETE, NULL);
 
     transfer_bar = lv_obj_create(scr);

@@ -40,10 +40,32 @@ void ui_show_contact_card(const contact_t *c);
 // Loads friend index for the list (contacts_load_friend fits).
 typedef esp_err_t (*ui_friend_loader_t)(int index, contact_t *out);
 
+typedef struct
+{
+    void (*open)(int index);    // RIGHT
+    void (*remove)(int index);  // RIGHT long press
+    void (*back)(void);         // LEFT
+} ui_friend_actions_t;
+
 // Friend list: names on the right, the focused friend's avatar on the left.
-// names must stay valid while the list is shown. LEFT calls on_back.
-void ui_show_friend_list(const char *const *names, int count, ui_friend_loader_t load,
-                         void (*on_back)(void));
+// Starts on friend focus. names must stay valid while the list is shown.
+void ui_show_friend_list(const char *const *names, int count, int focus, ui_friend_loader_t load,
+                         const ui_friend_actions_t *actions);
+
+// A contact's links by platform, full width. Starts on link focus; RIGHT
+// calls open, LEFT back. Without links: "No links".
+void ui_show_links(const contact_t *c, int focus, void (*open)(int index), void (*back)(void));
+
+// A QR code in the middle, between the full side bands: a link, or the own
+// first link on the home page (PAIR click), as the old firmware.
+void ui_show_qr(const char *text);
+
+// Deleting a friend: the friend's avatar, "Delete friend?", the name, and
+// Cancel / Delete, starting on Cancel.
+void ui_show_delete_confirm(const contact_t *c, void (*cancel)(void), void (*confirm)(void));
+
+// Blank screen (standby, as the old firmware).
+void ui_show_standby(void);
 
 // What the menu's entries do; the menu itself only moves between its pages
 // (main, Settings, the reset confirmation).
@@ -110,7 +132,9 @@ void ui_run(void);
 
 // ── Until the page flow (fsm) exists ─────────────────────
 // A stand-in for it, enough to walk every page: home, RIGHT to the menu,
-// PAIR long press to a made-up pairing. Everything pointed to must stay valid.
+// PAIR click for the own QR code, PAIR long press to a made-up pairing, and
+// UP / DOWN / LEFT long press for the low battery, no SD card and standby
+// pages. Everything pointed to must stay valid.
 typedef struct
 {
     const contact_t    *self;
