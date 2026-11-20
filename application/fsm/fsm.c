@@ -21,6 +21,7 @@
 #include "pairing.h"
 #include "pcf85063a.h"
 #include "ui.h"
+#include "portal.h"
 #include "wifi_ap.h"
 
 static const char *TAG = "fsm";
@@ -84,7 +85,11 @@ static contact_t   friend_contact;  // 4.8 KB: not on the stack
 static int         friend_focus;
 static const char *friend_names[CONTACTS_FRIENDS_MAX];
 
-static int wifi_step;  // 1 join the AP, 2 open the page
+static int  wifi_step;  // 1 join the AP, 2 open the page, 3 saved
+static char wifi_saved_id[CONTACT_UUID_LEN];
+// First-time setup: no own profile on the card. Wi-Fi setup cannot be left
+// until one is saved, as the old firmware (which then needed a reboot).
+static bool provisioning;
 
 static void enter(fsm_state_t next, int arg);
 
@@ -165,7 +170,7 @@ static void show_wifi_step(void)
         .step = wifi_step,
         .wifi_qr = qr,
         .url = wifi_ap_url(),
-        .self_id = cfg.self->uuid,
+        .self_id = wifi_saved_id,
     };
     ui_show_wifi_setup(&s);
 }
@@ -324,6 +329,16 @@ static void page_keys(button_id_t id, button_action_t action)
             }
             break;
         case FSM_WIFI_SETUP:
+            if (left && provisioning && wifi_step == 3)
+            {
+                provisioning = false;
+                enter(FSM_HOME, 0);
+            }
+            else if (left && !provisioning)
+            {
+                enter(FSM_MENU, 0);
+            }
+            break;
         case FSM_CLOCK:
             if (left)
             {
@@ -380,7 +395,7 @@ static void leave(fsm_state_t next)
     }
     if (state == FSM_WIFI_SETUP && next != FSM_WIFI_SETUP)
     {
-        wifi_ap_stop();
+        portal_stop();
     }
 }
 
@@ -447,10 +462,9 @@ static void enter(fsm_state_t next, int arg)
             // Starting takes a moment (the password needs the radio on).
             ui_show_message("Wi-Fi", "Starting...");
             ui_refresh_now();
-            esp_err_t err = wifi_ap_start();
+            esp_err_t err = portal_start();
             if (err != ESP_OK)
             {
-                ESP_LOGE(TAG, "AP start failed: %s", esp_err_to_name(err));
                 ui_show_message("Wi-Fi", "Failed to start");
                 break;
             }
@@ -542,7 +556,26 @@ static void on_tick_event(void)
     }
     else if (state == FSM_WIFI_SETUP)
     {
-        int step = wifi_ap_client_connected() ? 2 : 1;
+        if (wifi_step == 3)
+        {
+            return;  // saved: stays until LEFT
+        }
+        int step = portal_saved(wifi_saved_id) ? 3 : wifi_ap_client_connected() ? 2 : 1;
+        if (step == 3)
+        {
+            // The new profile at once, instead of the old firmware's reboot.
+            // The HTTP task may still serve files; it makes no contacts calls.
+            static contact_t fresh;  // 4.8 KB: not on the stack
+            if (contacts_load_self(&fresh) == ESP_OK)
+            {
+                *cfg.self = fresh;
+                home_qr = false;
+            }
+            else
+            {
+                ESP_LOGE(TAG, "Saved profile does not load");
+            }
+        }
         if (step != wifi_step)
         {
             wifi_step = step;
@@ -641,5 +674,6 @@ void fsm_start(const fsm_config_t *config)
     }
     ui_set_poll(drain_events);
     state = FSM_HOME;
-    enter(cfg.sd_ok ? FSM_HOME : FSM_NO_SD, 0);
+    provisioning = cfg.sd_ok && cfg.provisioning;
+    enter(!cfg.sd_ok ? FSM_NO_SD : provisioning ? FSM_WIFI_SETUP : FSM_HOME, 0);
 }

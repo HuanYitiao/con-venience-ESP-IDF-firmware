@@ -90,8 +90,11 @@ void ui_show_wifi_setup(const ui_wifi_setup_t *s)
     lv_obj_t *scr = ui_screen_create();
     if (s->step == 1)
     {
-        static const char *const lines[] = {"Scan to join Wi-Fi"};
-        setup_step(scr, s->wifi_qr, "Step 1/2", lines, 1);
+        // The password is new on every start: a phone that saved this
+        // network tries the old one and never joins.
+        static const char *const lines[] = {"Scan to join Wi-Fi", "", "Can't join? Remove",
+                                            "the saved network", "on your phone first."};
+        setup_step(scr, s->wifi_qr, "Step 1/2", lines, 5);
     }
     else if (s->step == 2)
     {
@@ -103,7 +106,7 @@ void ui_show_wifi_setup(const ui_wifi_setup_t *s)
         ui_centered_label(scr, UI_FONT_LARGE, 8, "Saved");
         ui_centered_label(scr, UI_FONT_SMALL, 34, s->self_id);
         ui_centered_label(scr, UI_FONT_SMALL, 50, "ID (recovery coming soon)");
-        ui_centered_label(scr, UI_FONT_SMALL, 72, "Reboot to apply");
+        ui_centered_label(scr, UI_FONT_SMALL, 72, "LEFT to finish");
     }
     ui_screen_show(scr);
 }

@@ -195,17 +195,19 @@ void app_main(void)
         {
             static contact_t self;  // 4.8 KB, mostly the avatar
             bool             sd_ok = sdcard_is_mounted();
+            bool             provisioning = false;
             if (sd_ok)
             {
                 contacts_ensure_self_uuid(NULL, NULL);  // as the old firmware, at each boot
                 contacts_list_friends();
+                // As the old firmware: without a name and an avatar there is
+                // nothing to show or send, so first-time setup comes first.
                 err = contacts_load_self(&self);
-                if (err != ESP_OK)
+                provisioning = err != ESP_OK || !self.name[0] || !self.avatar_res;
+                if (provisioning)
                 {
-                    // First-time setup (A5) takes over here; until then a
-                    // made-up profile keeps the pages usable.
-                    ESP_LOGW(TAG, "No own profile (%s), using made-up data", esp_err_to_name(err));
-                    contacts_fake(&self);
+                    ESP_LOGW(TAG, "No usable own profile (%s), first-time setup",
+                             err != ESP_OK ? esp_err_to_name(err) : "no name or avatar");
                 }
             }
             // BLE and ACOM at boot, as the old firmware. Needs NVS.
@@ -218,6 +220,7 @@ void app_main(void)
                 .self = &self,
                 .battery_mv = boot_battery_mv,
                 .sd_ok = sd_ok,
+                .provisioning = provisioning,
             };
             fsm_start(&config);
             ui_run();

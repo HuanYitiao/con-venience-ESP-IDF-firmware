@@ -43,9 +43,10 @@ typedef enum
 
 typedef struct
 {
-    const contact_t *self;          // must stay valid
+    contact_t       *self;          // must stay valid; reloaded after a portal save
     uint16_t         battery_mv;    // boot reading for the menu, 0: none
     bool             sd_ok;         // card mounted: else only the "No SD Card" page
+    bool             provisioning;  // no usable own profile: first-time setup
 } fsm_config_t;
 
 // Shows the first page and hooks into ui_run(). After ui_init().
