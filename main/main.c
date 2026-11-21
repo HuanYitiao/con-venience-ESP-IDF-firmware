@@ -10,6 +10,7 @@
 #include "esp_system.h"
 #include "fsm.h"
 #include "hw_tests.h"
+#include "max98357a.h"
 #include "mcp23017.h"
 #include "nvs_flash.h"
 #include "pairing.h"
@@ -17,6 +18,7 @@
 #include "power.h"
 #include "sdcard.h"
 #include "st75256.h"
+#include "supervisor.h"
 #include "ui.h"
 
 static const char *TAG = "con-venience";
@@ -28,6 +30,7 @@ static void on_button(button_id_t id, button_action_t action)
         [BUTTON_RIGHT] = "RIGHT", [BUTTON_PAIR] = "PAIR",
     };
     ESP_LOGI(TAG, "Button %s %s", names[id], action == BUTTON_LONG_PRESS ? "long press" : "click");
+    supervisor_activity();
     hw_test_on_button(id, action);
     ui_on_button(id, action);
 }
@@ -50,14 +53,17 @@ static esp_err_t nvs_init(void)
 // The boot reading for the menu; 0 without one (on USB, or a failed read).
 static uint16_t boot_battery_mv;
 
-// One VBAT reading per boot feeds the gauge. Needs NVS.
-static void battery_start(void)
+// One VBAT reading per boot feeds the gauge. Needs NVS. Returns true if
+// the battery is too low to run: checked at every boot, so a wake cannot
+// hand out the full UI on a flat battery before the supervisor's first
+// check (old firmware). A low reading is read again, up to three in all.
+static bool battery_start(void)
 {
     esp_err_t err = battery_init();
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Battery init failed: %s", esp_err_to_name(err));
-        return;
+        return false;
     }
 
     // COLD_BOOT also covers esp_restart, panic and watchdog resets; only a
@@ -71,7 +77,7 @@ static void battery_start(void)
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "VBAT read failed: %s", esp_err_to_name(err));
-        return;
+        return false;
     }
     // On USB the reading may be of no battery at all (a few mV), and the
     // level never goes back up: keep it out of the gauge.
@@ -79,11 +85,53 @@ static void battery_start(void)
     {
         ESP_LOGI(TAG, "VBAT %u mV on USB, level not updated (%u/%u)", mv, battery_level(),
                  BATTERY_LEVELS);
-        return;
+        return false;
     }
     battery_level_update(mv);
     boot_battery_mv = mv;
     ESP_LOGI(TAG, "VBAT %u mV, level %u/%u", mv, battery_level(), BATTERY_LEVELS);
+
+    for (int i = 1; mv < BATTERY_LOW_MV; i++)
+    {
+        if (i == 3)
+        {
+            ESP_LOGW(TAG, "Battery low");
+            return true;
+        }
+        if (battery_read_mv(&mv) != ESP_OK)
+        {
+            return false;
+        }
+        ESP_LOGI(TAG, "VBAT %u mV, again", mv);
+    }
+    return false;
+}
+
+// The old firmware's startup beep, on a cold boot only: a wake must stay
+// silent. The amp is shut down again right after.
+static void startup_beep(void)
+{
+    if (power_wake_reason() != POWER_WAKE_COLD_BOOT || max98357a_init() != ESP_OK)
+    {
+        return;
+    }
+    static const max98357a_note_t beep[] = {{2500, 50}};
+    max98357a_set_waveform(MAX98357A_WAVE_SQUARE);
+    max98357a_play(beep, 1, 15);
+    max98357a_deinit();
+}
+
+// The reverse of the boot order: the display sleeps while the SPI bus is
+// still up, the card lets go of the bus, then the peripheral rail goes.
+static void shutdown(uint32_t wake_after_sec)
+{
+    st75256_sleep();
+    if (sdcard_is_mounted())
+    {
+        sdcard_unmount();
+    }
+    power_periph_off();
+    power_sleep(wake_after_sec);
 }
 
 // +3.3V_PERIPH, then the SPI bus (driving it into an unpowered SD card would
@@ -172,17 +220,33 @@ void app_main(void)
         ESP_LOGE(TAG, "Button init failed: %s", esp_err_to_name(err));
     }
 
+    bool battery_low = false;
     err = nvs_init();
     if (err == ESP_OK)
     {
-        battery_start();
+        battery_low = battery_start();
     }
     else
     {
         ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(err));
     }
 
+#if HW_TEST == HW_TEST_NONE
+    // Woken by the RTC only to check the battery: if it is fine, straight
+    // back to sleep, before the display, the card and BLE (old firmware).
+    // A low battery boots on and shows the warning. On USB it boots fully.
+    if (power_wake_reason() == POWER_WAKE_TIMER && !battery_low && !power_usb_present())
+    {
+        ESP_LOGI(TAG, "Timer wake, battery fine, back to sleep");
+        power_sleep(FSM_WAKE_INTERVAL_S);
+    }
+#endif
+
     bool display_ok = display_start();
+    if (display_ok)
+    {
+        startup_beep();  // needs +3.3V_PERIPH, which the display start switched on
+    }
 
 #if HW_TEST != HW_TEST_NONE
     hw_test_run(display_ok);
@@ -221,8 +285,11 @@ void app_main(void)
                 .battery_mv = boot_battery_mv,
                 .sd_ok = sd_ok,
                 .provisioning = provisioning,
+                .battery_low = battery_low,
+                .shutdown = shutdown,
             };
             fsm_start(&config);
+            supervisor_start();
             ui_run();
         }
         ESP_LOGE(TAG, "UI init failed: %s", esp_err_to_name(err));

@@ -36,6 +36,11 @@ static const char *TAG = "fsm";
 #define RESET_MS 1000
 #define RESET_FAILED_MS 3000
 #define TICK_US (1000 * 1000)
+// Idle shutdown: the old firmware's 60 s; on the Wi-Fi page the phone's
+// requests count as use too, and editing a profile takes a while.
+#define IDLE_MS (60 * 1000)
+#define IDLE_WIFI_MS (5 * 60 * 1000)
+#define LOW_BATTERY_MS 5000
 #define QUEUE_LEN 16
 
 static const char *const state_names[] = {
@@ -55,6 +60,8 @@ static const char *const state_names[] = {
     [FSM_TRANSFER] = "TRANSFER",
     [FSM_PEER_CARD] = "PEER_CARD",
     [FSM_NO_SD] = "NO_SD",
+    [FSM_LOW_BATTERY] = "LOW_BATTERY",
+    [FSM_STANDBY] = "STANDBY",
 };
 
 typedef struct
@@ -521,6 +528,16 @@ static void enter(fsm_state_t next, int arg)
             break;
         case FSM_NO_SD:
             ui_show_message("No SD Card", "Insert card to continue");
+            return;  // a card going in reboots (supervisor)
+        case FSM_LOW_BATTERY:
+            ui_show_message("Low Battery", "Please charge");
+            start_timeout(LOW_BATTERY_MS);
+            return;  // locked, as the old firmware: no keys
+        case FSM_STANDBY:
+            ui_show_standby();
+            ui_refresh_now();
+            ESP_LOGI(TAG, "Switching off, RTC wake in %d s", FSM_WAKE_INTERVAL_S);
+            cfg.shutdown(FSM_WAKE_INTERVAL_S);
             return;
     }
     ui_set_key_handler(page_keys);
@@ -537,6 +554,11 @@ static void on_timeout(void)
             break;
         case FSM_RESETTING:
             esp_restart();
+            break;
+        case FSM_LOW_BATTERY:
+            // No timer wake: a button wake only shows the warning again.
+            ESP_LOGI(TAG, "Switching off, battery low");
+            cfg.shutdown(0);
             break;
         case FSM_PAIRING:
         case FSM_CONNECTING:
@@ -589,6 +611,21 @@ static void handle(fsm_event_t event, int arg)
 {
     switch (event)
     {
+        case FSM_EV_IDLE:
+            if (fsm_idle_limit_ms())  // still a page that may time out
+            {
+                enter(FSM_STANDBY, 0);
+            }
+            break;
+        case FSM_EV_BATTERY_LOW:
+            // As the old firmware: not in the middle of pairing, a delete or
+            // the reset; the next reading catches it after.
+            if (!is_pairing(state) && state != FSM_DELETED && state != FSM_RESETTING
+                && state != FSM_LOW_BATTERY && state != FSM_STANDBY)
+            {
+                enter(FSM_LOW_BATTERY, 0);
+            }
+            break;
         case FSM_EV_TIMEOUT:
             if (arg == generation)
             {
@@ -657,6 +694,27 @@ fsm_state_t fsm_state(void)
     return state;
 }
 
+uint32_t fsm_idle_limit_ms(void)
+{
+    switch (state)
+    {
+        case FSM_HOME:
+        case FSM_MENU:
+        case FSM_PROFILE:
+        case FSM_LINKS:
+        case FSM_LINK_QR:
+        case FSM_FRIENDS:
+        case FSM_DELETE_CONFIRM:
+        case FSM_CLOCK:
+        case FSM_NO_SD:
+            return IDLE_MS;
+        case FSM_WIFI_SETUP:
+            return IDLE_WIFI_MS;
+        default:
+            return 0;  // pairing and the peer's card time out by themselves
+    }
+}
+
 bool fsm_auto_sleep(void)
 {
     return auto_sleep;
@@ -675,5 +733,10 @@ void fsm_start(const fsm_config_t *config)
     ui_set_poll(drain_events);
     state = FSM_HOME;
     provisioning = cfg.sd_ok && cfg.provisioning;
-    enter(!cfg.sd_ok ? FSM_NO_SD : provisioning ? FSM_WIFI_SETUP : FSM_HOME, 0);
+    // Low battery first, as the old firmware: it wins over the SD prompt.
+    enter(cfg.battery_low ? FSM_LOW_BATTERY
+          : !cfg.sd_ok    ? FSM_NO_SD
+          : provisioning  ? FSM_WIFI_SETUP
+                          : FSM_HOME,
+          0);
 }

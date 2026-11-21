@@ -10,6 +10,8 @@
 
 // Gauge for 3x AA alkaline. Level 0 = nearly empty, BATTERY_LEVELS = full.
 #define BATTERY_LEVELS 8
+// Below this the device shows a warning and switches off (old firmware).
+#define BATTERY_LOW_MV 2700
 
 // Sets up the ADC and its calibration. Call once, after power_early_init()
 // (it makes BAT_MON_EN an output).

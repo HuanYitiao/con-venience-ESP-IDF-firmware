@@ -29,7 +29,13 @@ typedef enum
     FSM_TRANSFER,        // BLE transfer, with progress
     FSM_PEER_CARD,       // the friend just paired, for a while
     FSM_NO_SD,           // no card: nothing works
+    FSM_LOW_BATTERY,     // warning, then off without a timer wake
+    FSM_STANDBY,         // blank, then off until a button or the hourly RTC wake
 } fsm_state_t;
+
+// While off, the RTC wakes the board this often to check the battery
+// (old firmware).
+#define FSM_WAKE_INTERVAL_S (60 * 60)
 
 // Events from other tasks.
 typedef enum
@@ -39,6 +45,8 @@ typedef enum
     FSM_EV_PAIR_CONTACT,   // internal: ACOM got the peer, BLE starts
     FSM_EV_PAIR_PROGRESS,  // internal: arg percent, -1 without a total
     FSM_EV_PAIR_DONE,      // internal: arg 1 the peer's profile arrived, 0 failed
+    FSM_EV_IDLE,           // supervisor: no use for fsm_idle_limit_ms()
+    FSM_EV_BATTERY_LOW,    // supervisor: three low readings in a row
 } fsm_event_t;
 
 typedef struct
@@ -47,6 +55,10 @@ typedef struct
     uint16_t         battery_mv;    // boot reading for the menu, 0: none
     bool             sd_ok;         // card mounted: else only the "No SD Card" page
     bool             provisioning;  // no usable own profile: first-time setup
+    bool             battery_low;   // boot reading: starts on the warning
+    // Switches the device off (does not return): the board's shutdown order.
+    // wake_after_sec 0: buttons only.
+    void (*shutdown)(uint32_t wake_after_sec);
 } fsm_config_t;
 
 // Shows the first page and hooks into ui_run(). After ui_init().
@@ -56,6 +68,10 @@ void fsm_start(const fsm_config_t *config);
 void fsm_post(fsm_event_t event, int arg);
 
 fsm_state_t fsm_state(void);
+
+// How long the page on screen may sit unused before the device switches
+// off; 0: never (pairing, messages, the warning). From any task.
+uint32_t fsm_idle_limit_ms(void);
 
 // Settings > Auto sleep; RAM only, on after every boot (old firmware).
 bool fsm_auto_sleep(void);
