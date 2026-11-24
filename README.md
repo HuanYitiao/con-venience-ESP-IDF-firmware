@@ -11,27 +11,41 @@ This is its ESP-IDF firmware. It replaces the Arduino firmware, [con-venience-fi
 
 ## Plan
 
-| Status | Step | Content |
+Releases are named after animals, in alphabetical order. Friends test on boards we built; a test build goes out every week between releases.
+
+| Status | Version | Content |
 |---|---|---|
-| ⬜ | R1 | First release: version number, release build settings, CI that publishes the binaries on a tag, flashing guide |
-| ⬜ | R2 | Self-test from the old `test_main.cpp`, behind `CONFIG_CONVENIENCE_SELFTEST` |
-| ⬜ | R3 | Hardware checks not done yet (see below) |
-| ⬜ | R4 | Next PCB: bare ESP32-C6 module, SD pull-ups |
+| 🚧 | 1.0 Arctic Fox | First release: the migrated firmware, flashable by friends without ESP-IDF |
+| ⬜ | 1.1, 1.2, ... | Weekly test builds: firmware updates from the SD card, UI improvements |
+| ⬜ | 2.0 Bobcat | Release once updates from the SD card and the UI work are done |
 
 Status: ✅ done, 🚧 in progress, ⬜ not started.
 
-**R1, still to decide:** the first version number, whether the partition table gets two OTA slots now (changing it later means erasing the whole flash), whether a release ships an SD card template with the setup pages, and whether there is a changelog.
+**1.0 Arctic Fox:**
 
-**R3, not yet tested on the PCB:**
+- Partition table with two OTA slots and app rollback in the bootloader. Both must be in place before the first board leaves: changing them later means erasing the whole flash, and the bootloader cannot be updated over OTA.
+- Version from the git tag, shown in the boot log and in the menu.
+- CI publishes the binaries to a GitHub release on a version tag.
+- Flashing guide: a web flasher (Chrome or Edge) and an esptool command line.
+- An issue template for bug reports: version, steps, serial log.
 
-- The `power_sleep` fallback paths: a button still held at sleep, and sleeping inside the U1 hold window.
-- Power-off at about 6 s with the keep-alive disabled (the M1 control run).
-- The battery level stepping down over a long run on cells.
-- The hourly RTC wake that checks the battery and goes straight back to sleep.
-- The shutdown current.
-- The setup portal on iOS.
+**1.x test builds:**
 
-**R4:** the card side of the SD level shifter has no pull-ups, so some cards fail to write; see "SD pull-ups" in the [migration log](docs/migration.md#buses-and-peripherals). Moving to a module also means checking the flash size in [sdkconfig.defaults](sdkconfig.defaults) again.
+- **Firmware update from the SD card:** a new portal in Settings uploads the firmware image straight to the card. At boot the device finds it, checks it (project name, chip, a newer version), writes it to the other OTA slot with a progress page, and reboots into it. The new firmware marks itself valid once it is up; a firmware that does not start rolls back to the old one. Copying the image to the card on a PC works too. Not on a low battery.
+- **UI improvements**, from what the friends report.
+
+**Later:**
+
+- Self-test from the old `test_main.cpp`, behind `CONFIG_CONVENIENCE_SELFTEST`.
+- Signed firmware images, so a stranger who joins the portal cannot install their own.
+- Hardware checks not done yet:
+  - The `power_sleep` fallback paths: a button still held at sleep, and sleeping inside the U1 hold window.
+  - Power-off at about 6 s with the keep-alive disabled (the M1 control run).
+  - The battery level stepping down over a long run on cells.
+  - The hourly RTC wake that checks the battery and goes straight back to sleep.
+  - The shutdown current.
+  - The setup portal on iOS.
+- Next PCB: a bare ESP32-C6 module (check the flash size in [sdkconfig.defaults](sdkconfig.defaults) again), and pull-ups on the card side of the SD level shifter, without which some cards fail to write (see "SD pull-ups" in the [migration log](docs/migration.md#buses-and-peripherals)).
 
 ## Hardware
 
@@ -52,11 +66,10 @@ Requires ESP-IDF v6.1. The target is `esp32c6`.
 ```bash
 source ~/esp/esp-idf/export.sh
 idf.py build
-idf.py -p /dev/ttyACM0 flash
-idf.py -p /dev/ttyACM1 monitor
+idf.py -p /dev/serial/by-id/usb-Espressif_USB_JTAG* flash monitor
 ```
 
-The board shows up as two serial ports: flash through the first, read the log on the second. While the board is off the USB port is gone, so press a button (or reinsert the cells) before flashing.
+The board shows up as two serial ports, the ESP32-C6's own USB (`Espressif USB JTAG`) and a USB-UART bridge (`1a86`); the log comes out on both. Their `/dev/ttyACM` numbers depend on the order they appear, so name them by id. While the board is off the ESP32-C6's own port is gone, so press a button (or reinsert the cells) before flashing.
 
 Configuration changes go in [sdkconfig.defaults](sdkconfig.defaults).
 
