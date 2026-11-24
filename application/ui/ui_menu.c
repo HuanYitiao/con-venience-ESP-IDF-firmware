@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "ui.h"
 #include "ui_priv.h"
@@ -282,6 +283,9 @@ void ui_show_menu(const ui_menu_actions_t *a, uint16_t battery_mv, bool auto_sle
     }
     lv_obj_t *bat_label = add_text(PAGE_MAIN, bat);
     lv_obj_set_style_pad_top(bat_label, 8, 0);
+    // The version a bug report needs: the git tag, or tag-commits-hash
+    // (-dirty) for a build between releases.
+    add_text(PAGE_MAIN, esp_app_get_description()->version);
 
     pages[PAGE_SETTINGS] = add_page(content);
     add_entry(PAGE_SETTINGS, "Wi-Fi setup", ENTRY_WIFI);

@@ -4,4 +4,4 @@ idf_component_register(SRCS "ui.c" "ui_avatar.c" "ui_home.c" "ui_card.c" "ui_fri
                             "fonts/ui_font_7x14b.c" "fonts/ui_font_6x12.c" "fonts/ui_font_12x24.c"
                        INCLUDE_DIRS "include"
                        REQUIRES button contacts
-                       PRIV_REQUIRES st75256 power esp_timer)
+                       PRIV_REQUIRES st75256 power esp_timer esp_app_format)
