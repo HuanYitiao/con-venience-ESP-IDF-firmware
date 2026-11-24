@@ -7,6 +7,7 @@
 #include "button.h"
 #include "contacts.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "fsm.h"
 #include "hw_tests.h"
@@ -132,6 +133,22 @@ static void shutdown(uint32_t wake_after_sec)
     }
     power_periph_off();
     power_sleep(wake_after_sec);
+}
+
+// An image from a firmware update boots once as "pending verify", and the
+// bootloader rolls it back on the next reset unless it is marked valid.
+// Done as soon as the UI is up: a power-off resets through EN, so waiting
+// longer would roll back a good image whenever the board is switched off.
+static void app_confirm(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t   state;
+    if (esp_ota_get_state_partition(running, &state) == ESP_OK
+        && state == ESP_OTA_IMG_PENDING_VERIFY)
+    {
+        esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+        ESP_LOGI(TAG, "New firmware in %s marked valid: %s", running->label, esp_err_to_name(err));
+    }
 }
 
 // +3.3V_PERIPH, then the SPI bus (driving it into an unpowered SD card would
@@ -289,6 +306,7 @@ void app_main(void)
                 .shutdown = shutdown,
             };
             fsm_start(&config);
+            app_confirm();
             supervisor_start();
             ui_run();
         }

@@ -1,5 +1,9 @@
-# Fits a 4MB flash; the rest of the 16MB is unallocated for now.
+# Two 4MB OTA slots: the app is about 2MB now. phy_init is gone (PHY data
+# comes from the app, CONFIG_ESP_PHY_INIT_DATA_IN_PARTITION is off), so
+# otadata takes its place and ota_0 starts where factory did. nvs stays as
+# it was, so the battery level survives the move. 8MB of the 16MB unused.
 # Name,   Type, SubType, Offset,   Size
 nvs,      data, nvs,     0x9000,   0x5000
-phy_init, data, phy,     0xf000,   0x1000
-factory,  app,  factory, 0x10000,  0x300000
+otadata,  data, ota,     0xe000,   0x2000
+ota_0,    app,  ota_0,   0x10000,  0x400000
+ota_1,    app,  ota_1,   0x410000, 0x400000

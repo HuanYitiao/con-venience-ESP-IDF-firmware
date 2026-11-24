@@ -7,6 +7,11 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# Firmware updates (1.x): a new image boots once as "pending verify" and is
+# rolled back on the next reset unless main marks it valid. Lives in the
+# bootloader, which OTA cannot update: it must be on from the first release.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # The default of 3584 is too small for the code ported from the Arduino loop task.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
