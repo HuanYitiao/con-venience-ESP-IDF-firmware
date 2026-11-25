@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>con-venience Flasher</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10.1.0/dist/web/install-button.js?module"></script>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --text: #1d1d1b;
+    --muted: #5f5f5a;
+    --line: #d9d9d2;
+    --accent: #2f6f4f;
+    --accent-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614;
+      --text: #ecece6;
+      --muted: #a3a39b;
+      --line: #3a3a35;
+      --accent: #7cc49d;
+      --accent-text: #10130f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .version { color: var(--muted); margin: 0 0 32px; font-variant-numeric: tabular-nums; }
+  ol { padding-left: 22px; margin: 0 0 32px; }
+  li { margin-bottom: 10px; }
+  code { font-size: 14px; background: var(--line); padding: 1px 5px; border-radius: 4px; }
+  esp-web-install-button { display: block; margin-bottom: 32px; }
+  esp-web-install-button button {
+    font: inherit; font-weight: 600;
+    background: var(--accent); color: var(--accent-text);
+    border: 0; border-radius: 8px; padding: 12px 22px; cursor: pointer;
+  }
+  .note { color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .note p { margin: 0 0 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>con-venience firmware</h1>
+  <p class="version">Version @VERSION@</p>
+
+  <ol>
+    <li>Use Chrome or Edge on a computer. Other browsers cannot open serial ports.</li>
+    <li>Plug the board in with a USB cable and press any button, so it is on. The port is gone while the board is off.</li>
+    <li>Press <strong>Install</strong> and pick the port named <code>USB JTAG/serial debug unit</code>, not the <code>USB Single Serial</code> one.</li>
+    <li>Wait for it to finish (about half a minute). The board restarts by itself.</li>
+  </ol>
+
+  <esp-web-install-button manifest="manifest.json">
+    <button slot="activate">Install</button>
+    <span slot="unsupported">This browser cannot flash the board. Use Chrome or Edge on a computer.</span>
+    <span slot="not-allowed">Flashing needs a secure page (https).</span>
+  </esp-web-install-button>
+
+  <div class="note">
+    <p>Your profile and friends live on the SD card and are not touched. The battery gauge starts over after flashing.</p>
+    <p>Windows 10 and later need no driver for this port.</p>
+  </div>
+</main>
+</body>
+</html>

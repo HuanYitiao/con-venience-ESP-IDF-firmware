@@ -1,0 +1,11 @@
+{
+  "name": "con-venience",
+  "version": "@VERSION@",
+  "new_install_prompt_erase": false,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C6",
+      "parts": [{ "path": "firmware.bin", "offset": 0 }]
+    }
+  ]
+}

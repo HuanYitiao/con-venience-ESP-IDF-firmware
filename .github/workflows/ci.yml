@@ -1,8 +1,17 @@
 name: CI
 
+# Every push to main and every pull request is built. A version tag
+# (v1.0.0, v1.1.0, ...) also makes a draft GitHub release with the
+# binaries and puts that build on the web flasher (GitHub Pages).
+#
+# Tag with a message, which becomes the release title next to the
+# version: git tag -a v1.0.0 -m "Arctic Fox". x.0 tags are releases,
+# the others test builds, marked as pre-releases.
+
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 permissions:
@@ -14,8 +23,106 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0  # the version comes from git describe
+
+      # On a tag push the checkout leaves a lightweight copy of the tag,
+      # which drops its message and makes git describe skip it.
+      - name: Fetch tags
+        run: git fetch --force --tags
+
+      - name: Check that no hardware test is selected
+        run: |
+          if ! grep -Eq '^#define HW_TEST HW_TEST_NONE$' tests/hw_tests/include/hw_tests.h; then
+            echo "::error file=tests/hw_tests/include/hw_tests.h::HW_TEST must be HW_TEST_NONE"
+            exit 1
+          fi
+
       - name: Build with ESP-IDF
         uses: espressif/esp-idf-ci-action@v1.2.0
         with:
           esp_idf_version: v6.1
           target: esp32c6
+          # The container runs as another user; git refuses the checkout
+          # without safe.directory and the version would be lost.
+          command: git config --global --add safe.directory '*' && idf.py build merge-bin -o merged.bin
+
+      - name: Collect the binaries
+        run: |
+          version=$(git describe --tags --always --dirty)
+          mkdir dist
+          sudo cp build/merged.bin "dist/con-venience-$version.bin"
+          sudo cp build/con-venience.elf "dist/con-venience-$version.elf"
+          sudo chown -R "$(id -u)" dist
+          echo "$version" > dist/version.txt
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: dist/
+
+  release:
+    name: Draft the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Fetch tags
+        run: git fetch --force --tags
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: dist/
+
+      # Left as a draft: it is published by hand after a look.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          name=$(git tag -l --format='%(contents:subject)' "$TAG")
+          title="$TAG${name:+ $name}"
+          minor=$(echo "$TAG" | cut -d. -f2)
+          pre=""
+          if [ "$minor" != "0" ]; then pre="--prerelease"; fi
+          gh release create "$TAG" --draft $pre --title "$title" --generate-notes \
+            dist/*.bin dist/*.elf
+
+  flasher:
+    name: Update the web flasher
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: dist/
+
+      # ESP Web Tools reads the image from the same site: release
+      # downloads cannot be fetched from another page.
+      - name: Assemble the site
+        run: |
+          version=$(cat dist/version.txt)
+          mkdir site
+          cp flasher/index.html site/
+          cp "dist/con-venience-$version.bin" site/firmware.bin
+          sed "s/@VERSION@/$version/" flasher/manifest.json > site/manifest.json
+          sed -i "s/@VERSION@/$version/" site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+      - id: deploy
+        uses: actions/deploy-pages@v4
