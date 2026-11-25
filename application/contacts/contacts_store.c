@@ -197,9 +197,12 @@ void contacts_recover_friends(void)
         for (int i = 0; i < n; i++)
         {
             char path[PATH_LEN];
-            snprintf(path, sizeof(path), "%s/%s", FRIENDS_DIR, found[i]);
+            if (!make_path(path, "%s/%s", FRIENDS_DIR, found[i]))
+            {
+                continue;
+            }
             char base[PATH_LEN];
-            snprintf(base, sizeof(base), "%s", path);
+            strcpy(base, path);
             base[strlen(base) - strlen(STAGING_OLD)] = '\0';  // both suffixes are 4 long
 
             if (ends_with(found[i], STAGING_OLD) && !contacts_path_exists(base))
