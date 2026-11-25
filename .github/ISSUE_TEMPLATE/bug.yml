@@ -1,0 +1,40 @@
+name: Bug report
+description: Something on the device does not work as it should
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: Shown on the main menu under the battery voltage, for example v1.0.0.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: The buttons you pressed and the pages you went through, step by step.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: dropdown
+    id: power
+    attributes:
+      label: Power
+      options:
+        - Battery
+        - USB
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Serial log
+      description: If you can, the log from the board's USB port (115200 baud). Photos of the screen help too.
+      render: text

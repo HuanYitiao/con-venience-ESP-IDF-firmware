@@ -9,6 +9,22 @@ con-venience is a wearable social device for fursuiters: two wearers touch their
 
 This is its ESP-IDF firmware. It replaces the Arduino firmware, [con-venience-firmware](https://github.com/HuanYitiao/con-venience-firmware), does everything the old firmware does, pairs with devices that still run it, and reads and writes the same SD cards. How the port went, and the pitfalls found on the way, are in the [migration log](docs/migration.md).
 
+## Install
+
+No ESP-IDF needed.
+
+**Web flasher:** open the [con-venience flasher](https://huanyitiao.github.io/con-venience-ESP-IDF-firmware/) in Chrome or Edge on a computer, plug the board in, press a button so it is on, then press Install and pick the port named `USB JTAG/serial debug unit`. It always has the latest build.
+
+**esptool:** download `con-venience-<version>.bin` from the [releases](https://github.com/HuanYitiao/con-venience-ESP-IDF-firmware/releases) and write it from address 0. esptool comes with Python (`pip install esptool`) or as a [standalone program](https://github.com/espressif/esptool/releases).
+
+```bash
+esptool --chip esp32c6 -p <port> write-flash 0x0 con-venience-v1.0.0.bin
+```
+
+The port is the ESP32-C6's own USB (`Espressif USB JTAG`); the other one, a USB-UART bridge, does not get the chip into download mode on this board. On Windows it is a COM port and needs no driver. While the board is off its port is gone: press a button first. The profile and friends on the SD card are not touched; the battery gauge starts over.
+
+Found a bug? [Open an issue](https://github.com/HuanYitiao/con-venience-ESP-IDF-firmware/issues/new?template=bug.yml) with the version from the main menu.
+
 ## Plan
 
 Releases are named after animals, in alphabetical order. Friends test on boards we built; a test build goes out every week between releases.
@@ -77,6 +93,19 @@ Configuration changes go in [sdkconfig.defaults](sdkconfig.defaults).
 
 [tests/hw_tests](tests/hw_tests) holds one test per driver and for the contacts store. Set `HW_TEST` in [hw_tests.h](tests/hw_tests/include/hw_tests.h) to the test you want and flash; the board then runs only that test. Set it back to `HW_TEST_NONE` before committing.
 
+### Making a release
+
+Tag with the name as the message and push the tag:
+
+```bash
+git tag -a v1.0.0 -m "Arctic Fox"
+git push origin v1.0.0
+```
+
+CI builds it and makes a draft release with the merged image (`con-venience-<version>.bin`, written from address 0) and the ELF for decoding crash backtraces. A tag whose minor version is not 0 (a weekly test build) is marked as a pre-release. Publish the draft by hand after a look. The same build goes to the web flasher at once.
+
+The web flasher needs GitHub Pages set to "GitHub Actions" (Settings, Pages), and the `github-pages` environment must allow `v*` tags to deploy (Settings, Environments): by default it only allows the default branch.
+
 ## SD card
 
 The card is FAT32. The firmware does not format it, and cards from the old firmware work as they are.
@@ -117,6 +146,7 @@ application/     ui, contacts, fsm, pairing, portal, supervisor
 tests/hw_tests/  hardware tests, one at a time (HW_TEST)
 tools/           pcf2lvgl.py: bitmap fonts for LVGL
 docs/            migration log, datasheets
+flasher/         web flasher page, published by CI on a version tag
 ```
 
 The [migration log](docs/migration.md#directory-layout) has the full tree, and notes on each module under "Pitfalls".
