@@ -62,7 +62,7 @@ jobs:
           echo "$version" > dist/version.txt
           ls -l dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: firmware
           path: dist/
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - name: Fetch tags
         run: git fetch --force --tags
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: firmware
           path: dist/
@@ -110,7 +110,7 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: firmware
           path: dist/
@@ -126,8 +126,8 @@ jobs:
           sed "s/@VERSION@/$version/" flasher/manifest.json > site/manifest.json
           sed -i "s/@VERSION@/$version/" site/index.html
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: site/
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5.0.1
