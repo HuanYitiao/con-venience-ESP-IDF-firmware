@@ -38,18 +38,23 @@ jobs:
             exit 1
           fi
 
+      # IDF takes the version from version.txt before git describe. Set
+      # here, it does not depend on git working inside the build container
+      # (another user, which git may refuse). Local builds have no
+      # version.txt and use git describe.
+      - name: Set the version
+        run: git describe --tags --always --dirty | tee version.txt
+
       - name: Build with ESP-IDF
         uses: espressif/esp-idf-ci-action@v1.2.0
         with:
           esp_idf_version: v6.1
           target: esp32c6
-          # The container runs as another user; git refuses the checkout
-          # without safe.directory and the version would be lost.
-          command: git config --global --add safe.directory '*' && idf.py build merge-bin -o merged.bin
+          command: idf.py build merge-bin -o merged.bin
 
       - name: Collect the binaries
         run: |
-          version=$(git describe --tags --always --dirty)
+          version=$(cat version.txt)
           mkdir dist
           sudo cp build/merged.bin "dist/con-venience-$version.bin"
           sudo cp build/con-venience.elf "dist/con-venience-$version.elf"

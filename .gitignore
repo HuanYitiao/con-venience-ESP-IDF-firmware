@@ -1,6 +1,8 @@
 # ESP-IDF 编译产物
 build/
 sdkconfig.old
+# Written by CI before a build (see ci.yml); local builds use git describe
+version.txt
 
 # 组件管理器下载的依赖，由 dependencies.lock 还原
 managed_components/
