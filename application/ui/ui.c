@@ -295,10 +295,6 @@ esp_err_t ui_init(void)
     lv_display_set_buffers(display, render_buf, NULL, sizeof(render_buf),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display, flush);
-    // Edges of circles and rounded corners would come out gray otherwise;
-    // the UI is black and white (fonts are bitmaps anyway).
-    lv_display_set_antialiasing(display, false);
-
     // Black and white widgets with the 6x12 bitmap font.
     lv_display_set_theme(display, lv_theme_mono_init(display, false, UI_FONT_SMALL));
 

@@ -15,6 +15,11 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # The default of 3584 is too small for the code ported from the Arduino loop task.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
+# Release builds (1.0): optimised for size, as IDF suggests for production.
+# Assertions and INFO logs stay on: friends send serial logs with bug
+# reports.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
 # BLE (M9): IDF's NimBLE, the stack the old firmware used through NimBLE-Arduino.
 # One link at a time; central and peripheral, since the role depends on the
 # two MACs. 517 as in the old firmware's NimBLEDevice::setMTU(517). No
@@ -32,14 +37,13 @@ CONFIG_LWIP_MAX_SOCKETS=16
 
 # LVGL (A1). Renders 8-bit luminance (L8); the flush callback packs it into
 # the panel's 2bpp. Memory comes from the heap, so it shows in heap stats.
-# Logs go through printf. Montserrat 12/16/20 next to the default 14, to
-# judge sizes on the real screen.
+# Logs go through printf. The UI uses its own bitmap fonts; Montserrat 14
+# stays only as LVGL's default. Examples and demos are not built.
 CONFIG_LV_COLOR_DEPTH_8=y
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_USE_LOG=y
 CONFIG_LV_LOG_PRINTF=y
-CONFIG_LV_FONT_MONTSERRAT_12=y
-CONFIG_LV_FONT_MONTSERRAT_16=y
-CONFIG_LV_FONT_MONTSERRAT_20=y
+# CONFIG_LV_BUILD_EXAMPLES is not set
+# CONFIG_LV_BUILD_DEMOS is not set
 # QR codes for the Wi-Fi setup and profile link pages.
 CONFIG_LV_USE_QRCODE=y
