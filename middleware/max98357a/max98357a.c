@@ -21,7 +21,8 @@
 #define MAX98357A_BUF_SAMPLES 256
 #define TWO_PI_F 6.28318530718f
 
-static i2s_chan_handle_t tx;
+static i2s_chan_handle_t tx;  // made once, kept: see make_channel()
+static bool              running;  // enabled, pins on I2S
 static max98357a_waveform_t  wave = MAX98357A_WAVE_SINE;
 // Samples the DMA buffers hold. Writing this much silence after the last
 // note means the note has been played when the write returns.
@@ -113,13 +114,21 @@ static esp_err_t write_tone(uint32_t freq_hz, uint32_t duration_ms)
     return ESP_OK;
 }
 
-esp_err_t max98357a_init(void)
-{
-    if (tx)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
+static const i2s_std_gpio_config_t pins_cfg = {
+    .mclk = I2S_GPIO_UNUSED,
+    .bclk = (gpio_num_t)PIN_I2S_BCLK,
+    .ws = (gpio_num_t)PIN_I2S_LRC,
+    .dout = (gpio_num_t)PIN_I2S_DIN,
+    .din = I2S_GPIO_UNUSED,
+};
 
+// The channel is made once and never deleted. Deleting it (i2s_del_channel)
+// before Wi-Fi first used the AES/SHA accelerators broke them: every
+// WPA2 handshake message 3 left with a wrong MIC and no phone could join
+// the portal (IDF v6.1, ESP32-C6; both use GDMA). Keeping it costs one GDMA
+// channel and the DMA buffers.
+static esp_err_t make_channel(void)
+{
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     // Without this the DMA keeps replaying its last buffers once writes stop.
     chan_cfg.auto_clear_after_cb = true;
@@ -134,28 +143,31 @@ esp_err_t max98357a_init(void)
     const i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(MAX98357A_SAMPLE_RATE),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
-        .gpio_cfg =
-            {
-                .mclk = I2S_GPIO_UNUSED,
-                .bclk = (gpio_num_t)PIN_I2S_BCLK,
-                .ws = (gpio_num_t)PIN_I2S_LRC,
-                .dout = (gpio_num_t)PIN_I2S_DIN,
-                .din = I2S_GPIO_UNUSED,
-            },
+        .gpio_cfg = pins_cfg,
     };
-    err = i2s_channel_init_std_mode(tx, &std_cfg);
+    return i2s_channel_init_std_mode(tx, &std_cfg);
+}
+
+esp_err_t max98357a_init(void)
+{
+    if (running)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // A channel from an earlier init: deinit took the pins away from it.
+    esp_err_t err = tx ? i2s_channel_reconfig_std_gpio(tx, &pins_cfg) : make_channel();
     if (err == ESP_OK)
     {
         err = i2s_channel_enable(tx);
     }
     if (err == ESP_OK)
     {
+        running = true;
         err = power_speaker_set(false);
     }
     if (err != ESP_OK)
     {
-        i2s_del_channel(tx);
-        tx = NULL;
+        max98357a_deinit();
     }
     return err;
 }
@@ -163,14 +175,13 @@ esp_err_t max98357a_init(void)
 esp_err_t max98357a_deinit(void)
 {
     esp_err_t err = power_speaker_set(false);
-    if (tx)
+    if (running)
     {
         i2s_channel_disable(tx);
-        i2s_del_channel(tx);
-        tx = NULL;
+        running = false;
     }
     // Floating, no pulls: a high pin would back-power the amp once
-    // +3.3V_PERIPH is down.
+    // +3.3V_PERIPH is down. Also takes the pins from the I2S signals.
     const gpio_config_t pins = {
         .pin_bit_mask = (1ULL << PIN_I2S_BCLK) | (1ULL << PIN_I2S_LRC) | (1ULL << PIN_I2S_DIN),
         .mode = GPIO_MODE_INPUT,
@@ -186,7 +197,7 @@ void max98357a_set_waveform(max98357a_waveform_t w)
 
 esp_err_t max98357a_play(const max98357a_note_t *notes, size_t count, uint32_t gap_ms)
 {
-    if (!tx)
+    if (!running)
     {
         return ESP_ERR_INVALID_STATE;
     }

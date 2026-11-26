@@ -25,7 +25,8 @@ typedef struct
 esp_err_t max98357a_init(void);
 
 // Stops I2S, switches the amp off and leaves the I2S pins floating. Call
-// before power_periph_off().
+// before power_periph_off(). The I2S channel itself is kept for the next
+// init: deleting it breaks Wi-Fi's crypto (see max98357a.c).
 esp_err_t max98357a_deinit(void);
 
 void max98357a_set_waveform(max98357a_waveform_t wave);
