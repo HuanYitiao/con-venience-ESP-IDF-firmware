@@ -89,6 +89,13 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         client_connected = false;
         ESP_LOGI(TAG, "Client " MACSTR " left, reason %u", MAC2STR(e->mac), e->reason);
     }
+    else if (id == WIFI_EVENT_AP_WRONG_PASSWORD)
+    {
+        // Mostly a phone that saved the network from an earlier start: the
+        // password is new every time.
+        const wifi_event_ap_wrong_password_t *e = data;
+        ESP_LOGW(TAG, "Client " MACSTR " sent a wrong password", MAC2STR(e->mac));
+    }
 }
 
 // Every unknown path, including the phones' connectivity probes
